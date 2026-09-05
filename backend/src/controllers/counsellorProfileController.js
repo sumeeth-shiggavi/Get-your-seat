@@ -6,7 +6,8 @@ const pool = require("../config/database");
 
 const getCounsellorProfile = async (req, res) => {
   try {
-    const { user_id } = req.params;
+    // Use authenticated user ID from JWT
+    const user_id = req.user.id;
 
     const result = await pool.query(
       `
@@ -15,7 +16,6 @@ const getCounsellorProfile = async (req, res) => {
         u.full_name,
         u.email,
         u.phone,
-
         c.id AS counsellor_id,
         c.specialization,
         c.experience_years,
@@ -23,12 +23,9 @@ const getCounsellorProfile = async (req, res) => {
         c.bio,
         c.consultation_fee,
         c.is_verified
-
       FROM users u
-
       JOIN counsellors c
         ON c.user_id = u.id
-
       WHERE u.id = $1
         AND u.role = 'counsellor'
       `,
@@ -46,7 +43,6 @@ const getCounsellorProfile = async (req, res) => {
       success: true,
       data: result.rows[0],
     });
-
   } catch (error) {
     console.error(
       "Get counsellor profile error:",
@@ -55,11 +51,11 @@ const getCounsellorProfile = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Failed to fetch counsellor profile.",
+      message:
+        "Failed to fetch counsellor profile.",
     });
   }
 };
-
 
 // =====================================================
 // UPDATE COUNSELLOR PROFILE
@@ -69,7 +65,8 @@ const updateCounsellorProfile = async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { user_id } = req.params;
+    // Use authenticated user ID from JWT
+    const user_id = req.user.id;
 
     const {
       full_name,
@@ -80,6 +77,10 @@ const updateCounsellorProfile = async (req, res) => {
       bio,
       consultation_fee,
     } = req.body;
+
+    // -------------------------------------------------
+    // Validate required fields
+    // -------------------------------------------------
 
     if (
       !full_name ||
@@ -95,6 +96,10 @@ const updateCounsellorProfile = async (req, res) => {
       });
     }
 
+    // -------------------------------------------------
+    // Validate experience
+    // -------------------------------------------------
+
     if (Number(experience_years) < 0) {
       return res.status(400).json({
         success: false,
@@ -102,6 +107,10 @@ const updateCounsellorProfile = async (req, res) => {
           "Experience cannot be negative.",
       });
     }
+
+    // -------------------------------------------------
+    // Validate consultation fee
+    // -------------------------------------------------
 
     if (
       consultation_fee !== undefined &&
@@ -117,19 +126,19 @@ const updateCounsellorProfile = async (req, res) => {
 
     await client.query("BEGIN");
 
+    // -------------------------------------------------
     // Update users table
+    // -------------------------------------------------
+
     const userResult = await client.query(
       `
       UPDATE users
-
       SET
         full_name = $1,
         phone = $2,
         updated_at = CURRENT_TIMESTAMP
-
       WHERE id = $3
         AND role = 'counsellor'
-
       RETURNING
         id,
         full_name,
@@ -150,46 +159,48 @@ const updateCounsellorProfile = async (req, res) => {
 
       return res.status(404).json({
         success: false,
-        message: "Counsellor account not found.",
+        message:
+          "Counsellor account not found.",
       });
     }
 
+    // -------------------------------------------------
     // Update counsellors table
-    const counsellorResult = await client.query(
-      `
-      UPDATE counsellors
+    // -------------------------------------------------
 
-      SET
-        specialization = $1,
-        experience_years = $2,
-        qualification = $3,
-        bio = $4,
-        consultation_fee = $5
-
-      WHERE user_id = $6
-
-      RETURNING
-        id,
-        user_id,
-        specialization,
-        experience_years,
-        qualification,
-        bio,
-        consultation_fee,
-        is_verified
-      `,
-      [
-        specialization.trim(),
-        Number(experience_years),
-        qualification.trim(),
-        bio ? bio.trim() : null,
-        consultation_fee === "" ||
-        consultation_fee === undefined
-          ? 0
-          : Number(consultation_fee),
-        user_id,
-      ]
-    );
+    const counsellorResult =
+      await client.query(
+        `
+        UPDATE counsellors
+        SET
+          specialization = $1,
+          experience_years = $2,
+          qualification = $3,
+          bio = $4,
+          consultation_fee = $5
+        WHERE user_id = $6
+        RETURNING
+          id,
+          user_id,
+          specialization,
+          experience_years,
+          qualification,
+          bio,
+          consultation_fee,
+          is_verified
+        `,
+        [
+          specialization.trim(),
+          Number(experience_years),
+          qualification.trim(),
+          bio ? bio.trim() : null,
+          consultation_fee === "" ||
+          consultation_fee === undefined
+            ? 0
+            : Number(consultation_fee),
+          user_id,
+        ]
+      );
 
     if (counsellorResult.rows.length === 0) {
       await client.query("ROLLBACK");
@@ -213,7 +224,6 @@ const updateCounsellorProfile = async (req, res) => {
           counsellorResult.rows[0],
       },
     });
-
   } catch (error) {
     await client.query("ROLLBACK");
 
@@ -227,12 +237,10 @@ const updateCounsellorProfile = async (req, res) => {
       message:
         "Failed to update counsellor profile.",
     });
-
   } finally {
     client.release();
   }
 };
-
 
 module.exports = {
   getCounsellorProfile,

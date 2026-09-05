@@ -21,6 +21,10 @@ function CounsellorRegister() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // =====================================================
+  // HANDLE INPUT CHANGE
+  // =====================================================
+
   const handleChange = (e) => {
     const { name, value } = e.target;
 
@@ -28,13 +32,24 @@ function CounsellorRegister() {
       ...previous,
       [name]: value,
     }));
+
+    setError("");
+    setSuccess("");
   };
+
+  // =====================================================
+  // HANDLE REGISTRATION
+  // =====================================================
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     setError("");
     setSuccess("");
+
+    // ===================================================
+    // VALIDATION
+    // ===================================================
 
     if (
       !formData.full_name ||
@@ -65,28 +80,68 @@ function CounsellorRegister() {
       return;
     }
 
+    if (
+      Number(formData.experience_years) < 0
+    ) {
+      setError(
+        "Experience cannot be negative."
+      );
+      return;
+    }
+
+    if (
+      formData.consultation_fee !== "" &&
+      Number(formData.consultation_fee) < 0
+    ) {
+      setError(
+        "Consultation fee cannot be negative."
+      );
+      return;
+    }
+
     setLoading(true);
 
     try {
+      // =================================================
+      // SEND REGISTRATION REQUEST
+      // =================================================
+
       const response = await fetch(
         "http://localhost:5000/api/counsellor-auth/register",
         {
           method: "POST",
+
           headers: {
             "Content-Type": "application/json",
           },
+
           body: JSON.stringify({
-            full_name: formData.full_name,
-            email: formData.email,
-            password: formData.password,
-            phone: formData.phone,
+            full_name:
+              formData.full_name.trim(),
+
+            email:
+              formData.email.trim(),
+
+            password:
+              formData.password,
+
+            phone:
+              formData.phone.trim(),
+
             specialization:
               formData.specialization,
+
             experience_years:
-              Number(formData.experience_years),
+              Number(
+                formData.experience_years
+              ),
+
             qualification:
-              formData.qualification,
-            bio: formData.bio,
+              formData.qualification.trim(),
+
+            bio:
+              formData.bio.trim(),
+
             consultation_fee:
               formData.consultation_fee === ""
                 ? 0
@@ -97,14 +152,31 @@ function CounsellorRegister() {
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
-      if (!response.ok || !data.success) {
+      console.log(
+        "COUNSELLOR REGISTRATION RESPONSE:",
+        data
+      );
+
+      // =================================================
+      // HANDLE ERROR
+      // =================================================
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
         throw new Error(
           data.message ||
             "Counsellor registration failed."
         );
       }
+
+      // =================================================
+      // SUCCESS
+      // =================================================
 
       setSuccess(
         "Counsellor registration successful! Redirecting to login..."
@@ -122,6 +194,10 @@ function CounsellorRegister() {
         bio: "",
         consultation_fee: "",
       });
+
+      // =================================================
+      // REDIRECT TO LOGIN
+      // =================================================
 
       setTimeout(() => {
         navigate("/login");
@@ -141,14 +217,24 @@ function CounsellorRegister() {
     }
   };
 
+  // =====================================================
+  // PAGE
+  // =====================================================
+
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-6">
 
       <div className="max-w-3xl mx-auto">
 
-        {/* Header */}
+        {/* =================================================
+            REGISTRATION CARD
+        ================================================= */}
 
         <div className="bg-white rounded-2xl shadow-md p-8">
+
+          {/* =================================================
+              HEADER
+          ================================================= */}
 
           <div className="text-center mb-8">
 
@@ -167,31 +253,39 @@ function CounsellorRegister() {
 
           </div>
 
-          {/* Error */}
+          {/* =================================================
+              ERROR MESSAGE
+          ================================================= */}
 
           {error && (
             <div className="bg-red-100 border border-red-300 text-red-700 rounded-lg p-4 mb-6">
-              {error}
+              ⚠️ {error}
             </div>
           )}
 
-          {/* Success */}
+          {/* =================================================
+              SUCCESS MESSAGE
+          ================================================= */}
 
           {success && (
             <div className="bg-green-100 border border-green-300 text-green-700 rounded-lg p-4 mb-6">
-              {success}
+              ✅ {success}
             </div>
           )}
 
           <form onSubmit={handleSubmit}>
 
-            {/* Personal Information */}
+            {/* =================================================
+                PERSONAL INFORMATION
+            ================================================= */}
 
             <h2 className="text-xl font-bold text-gray-800 mb-4">
               Personal Information
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+              {/* FULL NAME */}
 
               <div>
                 <label className="block font-semibold text-gray-700 mb-2">
@@ -201,12 +295,16 @@ function CounsellorRegister() {
                 <input
                   type="text"
                   name="full_name"
-                  value={formData.full_name}
+                  value={
+                    formData.full_name
+                  }
                   onChange={handleChange}
                   placeholder="Enter full name"
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+
+              {/* EMAIL */}
 
               <div>
                 <label className="block font-semibold text-gray-700 mb-2">
@@ -216,12 +314,16 @@ function CounsellorRegister() {
                 <input
                   type="email"
                   name="email"
-                  value={formData.email}
+                  value={
+                    formData.email
+                  }
                   onChange={handleChange}
                   placeholder="Enter email"
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+
+              {/* PHONE */}
 
               <div>
                 <label className="block font-semibold text-gray-700 mb-2">
@@ -231,7 +333,9 @@ function CounsellorRegister() {
                 <input
                   type="tel"
                   name="phone"
-                  value={formData.phone}
+                  value={
+                    formData.phone
+                  }
                   onChange={handleChange}
                   placeholder="Enter phone number"
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -240,13 +344,17 @@ function CounsellorRegister() {
 
             </div>
 
-            {/* Password */}
+            {/* =================================================
+                ACCOUNT SECURITY
+            ================================================= */}
 
             <h2 className="text-xl font-bold text-gray-800 mt-8 mb-4">
               Account Security
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+              {/* PASSWORD */}
 
               <div>
                 <label className="block font-semibold text-gray-700 mb-2">
@@ -256,12 +364,16 @@ function CounsellorRegister() {
                 <input
                   type="password"
                   name="password"
-                  value={formData.password}
+                  value={
+                    formData.password
+                  }
                   onChange={handleChange}
                   placeholder="Minimum 6 characters"
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+
+              {/* CONFIRM PASSWORD */}
 
               <div>
                 <label className="block font-semibold text-gray-700 mb-2">
@@ -271,7 +383,9 @@ function CounsellorRegister() {
                 <input
                   type="password"
                   name="confirm_password"
-                  value={formData.confirm_password}
+                  value={
+                    formData.confirm_password
+                  }
                   onChange={handleChange}
                   placeholder="Confirm password"
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -280,13 +394,17 @@ function CounsellorRegister() {
 
             </div>
 
-            {/* Professional Information */}
+            {/* =================================================
+                PROFESSIONAL INFORMATION
+            ================================================= */}
 
             <h2 className="text-xl font-bold text-gray-800 mt-8 mb-4">
               Professional Information
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+              {/* SPECIALIZATION */}
 
               <div>
                 <label className="block font-semibold text-gray-700 mb-2">
@@ -295,7 +413,9 @@ function CounsellorRegister() {
 
                 <select
                   name="specialization"
-                  value={formData.specialization}
+                  value={
+                    formData.specialization
+                  }
                   onChange={handleChange}
                   className="w-full border border-gray-300 rounded-lg p-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
@@ -325,6 +445,8 @@ function CounsellorRegister() {
                 </select>
               </div>
 
+              {/* EXPERIENCE */}
+
               <div>
                 <label className="block font-semibold text-gray-700 mb-2">
                   Experience (Years) *
@@ -333,13 +455,17 @@ function CounsellorRegister() {
                 <input
                   type="number"
                   name="experience_years"
-                  value={formData.experience_years}
+                  value={
+                    formData.experience_years
+                  }
                   onChange={handleChange}
                   min="0"
                   placeholder="Example: 5"
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+
+              {/* QUALIFICATION */}
 
               <div>
                 <label className="block font-semibold text-gray-700 mb-2">
@@ -349,12 +475,16 @@ function CounsellorRegister() {
                 <input
                   type="text"
                   name="qualification"
-                  value={formData.qualification}
+                  value={
+                    formData.qualification
+                  }
                   onChange={handleChange}
                   placeholder="Example: M.Tech, Ph.D."
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+
+              {/* CONSULTATION FEE */}
 
               <div>
                 <label className="block font-semibold text-gray-700 mb-2">
@@ -364,7 +494,9 @@ function CounsellorRegister() {
                 <input
                   type="number"
                   name="consultation_fee"
-                  value={formData.consultation_fee}
+                  value={
+                    formData.consultation_fee
+                  }
                   onChange={handleChange}
                   min="0"
                   placeholder="Example: 500"
@@ -374,7 +506,9 @@ function CounsellorRegister() {
 
             </div>
 
-            {/* Bio */}
+            {/* =================================================
+                BIO
+            ================================================= */}
 
             <div className="mt-5">
 
@@ -384,7 +518,9 @@ function CounsellorRegister() {
 
               <textarea
                 name="bio"
-                value={formData.bio}
+                value={
+                  formData.bio
+                }
                 onChange={handleChange}
                 rows="5"
                 placeholder="Tell students about your experience and expertise..."
@@ -393,7 +529,9 @@ function CounsellorRegister() {
 
             </div>
 
-            {/* Submit */}
+            {/* =================================================
+                SUBMIT BUTTON
+            ================================================= */}
 
             <button
               type="submit"
@@ -407,7 +545,9 @@ function CounsellorRegister() {
 
           </form>
 
-          {/* Login */}
+          {/* =================================================
+              LOGIN
+          ================================================= */}
 
           <div className="text-center mt-6">
 
@@ -416,7 +556,9 @@ function CounsellorRegister() {
             </p>
 
             <button
-              onClick={() => navigate("/login")}
+              onClick={() =>
+                navigate("/login")
+              }
               className="text-blue-600 font-semibold hover:underline mt-1"
             >
               Login here

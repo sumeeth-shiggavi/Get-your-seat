@@ -6,7 +6,8 @@ const pool = require("../config/database");
 
 const getStudentNotifications = async (req, res) => {
   try {
-    const { user_id } = req.params;
+    // Use authenticated user ID from JWT
+    const user_id = req.user.id;
 
     const result = await pool.query(
       `
@@ -41,7 +42,6 @@ const getStudentNotifications = async (req, res) => {
   }
 };
 
-
 // =====================================================
 // MARK NOTIFICATION AS READ
 // =====================================================
@@ -50,14 +50,18 @@ const markNotificationAsRead = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Use authenticated user ID from JWT
+    const user_id = req.user.id;
+
     const result = await pool.query(
       `
       UPDATE notifications
       SET is_read = true
       WHERE id = $1
+        AND user_id = $2
       RETURNING *
       `,
-      [id]
+      [id, user_id]
     );
 
     if (result.rows.length === 0) {
@@ -85,14 +89,14 @@ const markNotificationAsRead = async (req, res) => {
   }
 };
 
-
 // =====================================================
 // MARK ALL NOTIFICATIONS AS READ
 // =====================================================
 
 const markAllNotificationsAsRead = async (req, res) => {
   try {
-    const { user_id } = req.params;
+    // Use authenticated user ID from JWT
+    const user_id = req.user.id;
 
     await pool.query(
       `
@@ -119,7 +123,6 @@ const markAllNotificationsAsRead = async (req, res) => {
     });
   }
 };
-
 
 module.exports = {
   getStudentNotifications,

@@ -1,29 +1,44 @@
 const express = require("express");
 
-const {
-  getCounsellorAppointments,
-  completeAppointment,
-  updateAppointmentNotes,
-} = require("../controllers/counsellorDashboardController");
+const authMiddleware = require("../middleware/authMiddleware");
+
+const dashboardController = require("../controllers/counsellorDashboardController");
 
 const router = express.Router();
 
-// Get counsellor profile + appointments
+const requireRole = authMiddleware.requireRole;
+
+// =====================================================
+// COUNSELLOR DASHBOARD
+// =====================================================
+
 router.get(
   "/:user_id",
-  getCounsellorAppointments
+  authMiddleware,
+  requireRole("counsellor"),
+  dashboardController.getCounsellorAppointments
 );
 
-// Mark appointment as completed
+// =====================================================
+// COMPLETE APPOINTMENT
+// =====================================================
+
 router.patch(
   "/appointments/:id/complete",
-  completeAppointment
+  authMiddleware,
+  requireRole("counsellor"),
+  dashboardController.completeAppointment
 );
 
-// Add / update consultation notes
+// =====================================================
+// UPDATE APPOINTMENT NOTES
+// =====================================================
+
 router.patch(
   "/appointments/:id/notes",
-  updateAppointmentNotes
+  authMiddleware,
+  requireRole("counsellor"),
+  dashboardController.updateAppointmentNotes
 );
 
 module.exports = router;

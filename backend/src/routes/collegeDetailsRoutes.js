@@ -6,6 +6,14 @@ const {
 
 const router = express.Router();
 
-router.get("/:id", getCollegeDetails);
+// =====================================================
+// PUBLIC COLLEGE DETAILS ROUTE
+// =====================================================
+
+// Get details of a specific college
+router.get(
+  "/:id",
+  getCollegeDetails
+);
 
 module.exports = router;

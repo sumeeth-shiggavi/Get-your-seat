@@ -14,36 +14,25 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const counsellorDashboardRoutes = require("./routes/counsellorDashboardRoutes");
 const counsellorAuthRoutes = require("./routes/counsellorAuthRoutes");
 const counsellorProfileRoutes = require("./routes/counsellorProfileRoutes");
+const counsellorAvailabilityRoutes = require("./routes/counsellorAvailabilityRoutes");
+const counsellorSlotsRoutes = require("./routes/counsellorSlotsRoutes");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
+/* ================================
+   API ROUTES
+================================ */
 
-// =====================================================
-// API ROUTES
-// =====================================================
+app.use("/api/exams", examRoutes);
 
-app.use(
-  "/api/exams",
-  examRoutes
-);
+app.use("/api/colleges", collegeRoutes);
 
-app.use(
-  "/api/colleges",
-  collegeRoutes
-);
+app.use("/api/predict", predictorRoutes);
 
-app.use(
-  "/api/predict",
-  predictorRoutes
-);
-
-app.use(
-  "/api/auth",
-  authRoutes
-);
+app.use("/api/auth", authRoutes);
 
 app.use(
   "/api/college-details",
@@ -90,10 +79,19 @@ app.use(
   counsellorProfileRoutes
 );
 
+app.use(
+  "/api/counsellor-availability",
+  counsellorAvailabilityRoutes
+);
 
-// =====================================================
-// ROOT ROUTE
-// =====================================================
+app.use(
+  "/api/counsellor-slots",
+  counsellorSlotsRoutes
+);
+
+/* ================================
+   ROOT ROUTE
+================================ */
 
 app.get("/", (req, res) => {
   res.json({
@@ -101,6 +99,5 @@ app.get("/", (req, res) => {
     message: "GET YOUR SEAT backend is running",
   });
 });
-
 
 module.exports = app;

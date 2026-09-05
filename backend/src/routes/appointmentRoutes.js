@@ -1,5 +1,8 @@
 const express = require("express");
 
+const authMiddleware =
+  require("../middleware/authMiddleware");
+
 const {
   createAppointment,
   getStudentAppointments,
@@ -7,32 +10,48 @@ const {
   rescheduleAppointment,
 } = require("../controllers/appointmentController");
 
+const requireRole =
+  authMiddleware.requireRole;
+
 const router = express.Router();
 
+// =====================================================
+// STUDENT APPOINTMENT ROUTES
+// All routes require:
+// 1. Valid JWT
+// 2. Student role
+// =====================================================
 
-// Book appointment
-router.post("/", createAppointment);
+// BOOK APPOINTMENT
+router.post(
+  "/",
+  authMiddleware,
+  requireRole("student"),
+  createAppointment
+);
 
-
-// Get student's appointments
+// GET STUDENT APPOINTMENTS
 router.get(
   "/student/:user_id",
+  authMiddleware,
+  requireRole("student"),
   getStudentAppointments
 );
 
-
-// Cancel appointment
+// CANCEL APPOINTMENT
 router.patch(
   "/:id/cancel",
+  authMiddleware,
+  requireRole("student"),
   cancelAppointment
 );
 
-
-// Reschedule appointment
+// RESCHEDULE APPOINTMENT
 router.patch(
   "/:id/reschedule",
+  authMiddleware,
+  requireRole("student"),
   rescheduleAppointment
 );
-
 
 module.exports = router;

@@ -1,4 +1,5 @@
 const bcrypt = require("bcrypt");
+
 const pool = require("../config/database");
 
 // =====================================================
@@ -7,7 +8,8 @@ const pool = require("../config/database");
 
 const changePassword = async (req, res) => {
   try {
-    const { user_id } = req.params;
+    // Use the authenticated user's ID from JWT
+    const user_id = req.user.id;
 
     const {
       current_password,

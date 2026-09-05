@@ -6,7 +6,8 @@ const pool = require("../config/database");
 
 const getProfile = async (req, res) => {
   try {
-    const { user_id } = req.params;
+    // Use the authenticated user's ID from JWT
+    const user_id = req.user.id;
 
     const result = await pool.query(
       `
@@ -15,7 +16,6 @@ const getProfile = async (req, res) => {
         u.full_name,
         u.email,
         u.phone,
-
         s.id AS student_id,
         s.date_of_birth,
         s.gender,
@@ -23,12 +23,9 @@ const getProfile = async (req, res) => {
         s.state,
         s.preferred_course,
         s.preferred_location
-
       FROM users u
-
       LEFT JOIN students s
         ON u.id = s.user_id
-
       WHERE u.id = $1
       `,
       [user_id]
@@ -55,14 +52,14 @@ const getProfile = async (req, res) => {
   }
 };
 
-
 // =====================================================
 // UPDATE STUDENT PROFILE
 // =====================================================
 
 const updateProfile = async (req, res) => {
   try {
-    const { user_id } = req.params;
+    // Use the authenticated user's ID from JWT
+    const user_id = req.user.id;
 
     const {
       full_name,
@@ -133,7 +130,8 @@ const updateProfile = async (req, res) => {
     // -------------------------------------------------
 
     if (studentResult.rows.length > 0) {
-      const studentId = studentResult.rows[0].id;
+      const studentId =
+        studentResult.rows[0].id;
 
       await pool.query(
         `
@@ -199,7 +197,6 @@ const updateProfile = async (req, res) => {
         u.full_name,
         u.email,
         u.phone,
-
         s.id AS student_id,
         s.date_of_birth,
         s.gender,
@@ -207,12 +204,9 @@ const updateProfile = async (req, res) => {
         s.state,
         s.preferred_course,
         s.preferred_location
-
       FROM users u
-
       LEFT JOIN students s
         ON u.id = s.user_id
-
       WHERE u.id = $1
       `,
       [user_id]
@@ -232,7 +226,6 @@ const updateProfile = async (req, res) => {
     });
   }
 };
-
 
 module.exports = {
   getProfile,

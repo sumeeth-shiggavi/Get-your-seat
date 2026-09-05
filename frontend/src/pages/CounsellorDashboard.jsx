@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 function CounsellorDashboard() {
   const navigate = useNavigate();
 
-  const user = JSON.parse(localStorage.getItem("user"));
+  const [user, setUser] = useState(null);
 
   const [counsellor, setCounsellor] = useState(null);
   const [appointments, setAppointments] = useState([]);
@@ -18,34 +18,202 @@ function CounsellorDashboard() {
   const [notes, setNotes] = useState("");
 
   // =====================================================
+  // GET AUTHENTICATED USER
+  // =====================================================
+
+  useEffect(() => {
+    try {
+      const storedUser =
+        localStorage.getItem("user");
+
+      const storedToken =
+        localStorage.getItem("token");
+
+      if (!storedUser || !storedToken) {
+        navigate("/login", {
+          replace: true,
+        });
+
+        return;
+      }
+
+      const parsedUser =
+        JSON.parse(storedUser);
+
+      if (
+        !parsedUser ||
+        parsedUser.role !== "counsellor"
+      ) {
+        navigate("/login", {
+          replace: true,
+        });
+
+        return;
+      }
+
+      setUser(parsedUser);
+    } catch (error) {
+      console.error(
+        "Invalid user information:",
+        error
+      );
+
+      localStorage.removeItem("user");
+      localStorage.removeItem("token");
+
+      navigate("/login", {
+        replace: true,
+      });
+    }
+  }, [navigate]);
+
+  // =====================================================
   // FETCH DASHBOARD
   // =====================================================
 
   const fetchDashboard = async () => {
     try {
-      if (!user) {
-        setError(
-          "Please login to access the counsellor dashboard."
-        );
+      setError("");
 
-        setLoading(false);
+      const storedUser =
+        localStorage.getItem("user");
+
+      const token =
+        localStorage.getItem("token");
+
+      // -------------------------------------------------
+      // CHECK LOGIN
+      // -------------------------------------------------
+
+      if (!storedUser || !token) {
+        navigate("/login", {
+          replace: true,
+        });
+
         return;
       }
 
-      if (user.role !== "counsellor") {
+      const loggedInUser =
+        JSON.parse(storedUser);
+
+      // -------------------------------------------------
+      // CHECK ROLE
+      // -------------------------------------------------
+
+      if (
+        !loggedInUser ||
+        loggedInUser.role !== "counsellor"
+      ) {
         setError(
           "Only counsellors can access this dashboard."
         );
 
-        setLoading(false);
         return;
       }
 
+      // -------------------------------------------------
+      // IMPORTANT
+      //
+      // The counsellor login response contains:
+      //
+      // user_id = users.id
+      //
+      // The JWT also contains:
+      //
+      // id = users.id
+      //
+      // The backend identifies the counsellor
+      // from the JWT, so we don't actually need
+      // to trust a URL user ID.
+      //
+      // We use user_id only for the existing route.
+      // -------------------------------------------------
+
+      const userId =
+        loggedInUser.user_id;
+
+      if (!userId) {
+        console.error(
+          "Counsellor user_id is missing:",
+          loggedInUser
+        );
+
+        setError(
+          "Counsellor account information is incomplete. Please log in again."
+        );
+
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
+
+        navigate("/login", {
+          replace: true,
+        });
+
+        return;
+      }
+
+      // -------------------------------------------------
+      // FETCH DASHBOARD WITH JWT
+      // -------------------------------------------------
+
       const response = await fetch(
-        `http://localhost:5000/api/counsellor-dashboard/${user.id}`
+        `http://localhost:5000/api/counsellor-dashboard/${userId}`,
+        {
+          method: "GET",
+
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
 
-      const data = await response.json();
+      // -------------------------------------------------
+      // HANDLE EMPTY / INVALID RESPONSE
+      // -------------------------------------------------
+
+      let data = {};
+
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
+
+      // -------------------------------------------------
+      // TOKEN EXPIRED / INVALID
+      // -------------------------------------------------
+
+      if (
+        response.status === 401
+      ) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+
+        navigate("/login", {
+          replace: true,
+        });
+
+        return;
+      }
+
+      // -------------------------------------------------
+      // NOT AUTHORIZED
+      // -------------------------------------------------
+
+      if (
+        response.status === 403
+      ) {
+        setError(
+          data.message ||
+            "You are not authorized to access the counsellor dashboard."
+        );
+
+        return;
+      }
+
+      // -------------------------------------------------
+      // OTHER API ERRORS
+      // -------------------------------------------------
 
       if (!response.ok) {
         throw new Error(
@@ -54,24 +222,41 @@ function CounsellorDashboard() {
         );
       }
 
-      setCounsellor(data.data.counsellor);
-      setAppointments(data.data.appointments || []);
+      // -------------------------------------------------
+      // STORE DATA
+      // -------------------------------------------------
 
+      setCounsellor(
+        data.data?.counsellor || null
+      );
+
+      setAppointments(
+        data.data?.appointments || []
+      );
     } catch (error) {
       console.error(
         "Counsellor dashboard error:",
         error
       );
 
-      setError(error.message);
+      setError(
+        error.message ||
+          "Failed to load counsellor dashboard."
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  // =====================================================
+  // LOAD DASHBOARD
+  // =====================================================
+
   useEffect(() => {
-    fetchDashboard();
-  }, []);
+    if (user) {
+      fetchDashboard();
+    }
+  }, [user]);
 
   // =====================================================
   // COMPLETE APPOINTMENT
@@ -79,20 +264,46 @@ function CounsellorDashboard() {
 
   const completeAppointment = async (id) => {
     try {
+      const token =
+        localStorage.getItem("token");
+
+      if (!token) {
+        navigate("/login", {
+          replace: true,
+        });
+
+        return;
+      }
+
       const response = await fetch(
         `http://localhost:5000/api/counsellor-dashboard/appointments/${id}/complete`,
         {
           method: "PATCH",
+
           headers: {
-            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            user_id: user.id,
-          }),
         }
       );
 
-      const data = await response.json();
+      let data = {};
+
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
+
+      if (response.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+
+        navigate("/login", {
+          replace: true,
+        });
+
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(
@@ -105,10 +316,17 @@ function CounsellorDashboard() {
         "Appointment marked as completed."
       );
 
-      fetchDashboard();
-
+      await fetchDashboard();
     } catch (error) {
-      alert(error.message);
+      console.error(
+        "Complete appointment error:",
+        error
+      );
+
+      alert(
+        error.message ||
+          "Failed to complete appointment."
+      );
     }
   };
 
@@ -122,21 +340,51 @@ function CounsellorDashboard() {
         return;
       }
 
+      const token =
+        localStorage.getItem("token");
+
+      if (!token) {
+        navigate("/login", {
+          replace: true,
+        });
+
+        return;
+      }
+
       const response = await fetch(
         `http://localhost:5000/api/counsellor-dashboard/appointments/${selectedAppointment.id}/notes`,
         {
           method: "PATCH",
+
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
+
           body: JSON.stringify({
-            user_id: user.id,
             notes: notes,
           }),
         }
       );
 
-      const data = await response.json();
+      let data = {};
+
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
+
+      if (response.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+
+        navigate("/login", {
+          replace: true,
+        });
+
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(
@@ -152,10 +400,17 @@ function CounsellorDashboard() {
       setSelectedAppointment(null);
       setNotes("");
 
-      fetchDashboard();
-
+      await fetchDashboard();
     } catch (error) {
-      alert(error.message);
+      console.error(
+        "Save notes error:",
+        error
+      );
+
+      alert(
+        error.message ||
+          "Failed to save notes."
+      );
     }
   };
 
@@ -164,6 +419,10 @@ function CounsellorDashboard() {
   // =====================================================
 
   const formatDate = (date) => {
+    if (!date) {
+      return "";
+    }
+
     return new Date(date).toLocaleDateString(
       "en-IN",
       {
@@ -208,11 +467,9 @@ function CounsellorDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-
         <p className="text-lg text-gray-600">
           Loading counsellor dashboard...
         </p>
-
       </div>
     );
   }
@@ -223,12 +480,11 @@ function CounsellorDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-10">
-
       <div className="max-w-7xl mx-auto px-6">
 
-        {/* ================================================= */}
-        {/* HEADER */}
-        {/* ================================================= */}
+        {/* =================================================
+            HEADER
+        ================================================= */}
 
         <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
 
@@ -262,26 +518,41 @@ function CounsellorDashboard() {
 
             </div>
 
+            {/* Dashboard Actions */}
 
-            {/* Profile Button */}
+            <div className="flex flex-col sm:flex-row gap-3">
 
-            <button
-              onClick={() =>
-                navigate("/counsellor-profile")
-              }
-              className="px-5 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
-            >
-              👤 My Profile
-            </button>
+              <button
+                onClick={() =>
+                  navigate(
+                    "/counsellor-availability"
+                  )
+                }
+                className="px-5 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
+              >
+                🕐 Manage Availability
+              </button>
+
+              <button
+                onClick={() =>
+                  navigate(
+                    "/counsellor-profile"
+                  )
+                }
+                className="px-5 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+              >
+                👤 My Profile
+              </button>
+
+            </div>
 
           </div>
 
         </div>
 
-
-        {/* ================================================= */}
-        {/* ERROR */}
-        {/* ================================================= */}
+        {/* =================================================
+            ERROR
+        ================================================= */}
 
         {error && (
           <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6">
@@ -289,14 +560,11 @@ function CounsellorDashboard() {
           </div>
         )}
 
-
-        {/* ================================================= */}
-        {/* STATISTICS */}
-        {/* ================================================= */}
+        {/* =================================================
+            STATISTICS
+        ================================================= */}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-
-          {/* Total */}
 
           <div className="bg-white rounded-2xl shadow-md p-6">
 
@@ -309,9 +577,6 @@ function CounsellorDashboard() {
             </p>
 
           </div>
-
-
-          {/* Upcoming */}
 
           <div className="bg-white rounded-2xl shadow-md p-6">
 
@@ -333,9 +598,6 @@ function CounsellorDashboard() {
 
           </div>
 
-
-          {/* Completed */}
-
           <div className="bg-white rounded-2xl shadow-md p-6">
 
             <p className="text-gray-500">
@@ -356,10 +618,9 @@ function CounsellorDashboard() {
 
         </div>
 
-
-        {/* ================================================= */}
-        {/* APPOINTMENTS */}
-        {/* ================================================= */}
+        {/* =================================================
+            APPOINTMENTS
+        ================================================= */}
 
         <div className="bg-white rounded-2xl shadow-md p-6">
 
@@ -374,9 +635,6 @@ function CounsellorDashboard() {
             </p>
 
           </div>
-
-
-          {/* No Appointments */}
 
           {appointments.length === 0 ? (
 
@@ -431,7 +689,6 @@ function CounsellorDashboard() {
 
                       </div>
 
-
                       {/* Status */}
 
                       <span
@@ -458,7 +715,6 @@ function CounsellorDashboard() {
 
                     </div>
 
-
                     {/* Appointment Details */}
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
@@ -477,7 +733,6 @@ function CounsellorDashboard() {
                         </p>
 
                       </div>
-
 
                       <div className="bg-gray-50 rounded-lg p-4">
 
@@ -498,7 +753,6 @@ function CounsellorDashboard() {
 
                       </div>
 
-
                       <div className="bg-gray-50 rounded-lg p-4">
 
                         <p className="text-sm text-gray-500">
@@ -514,7 +768,6 @@ function CounsellorDashboard() {
                       </div>
 
                     </div>
-
 
                     {/* Student Information */}
 
@@ -562,7 +815,6 @@ function CounsellorDashboard() {
 
                     </div>
 
-
                     {/* Existing Notes */}
 
                     {appointment.notes && (
@@ -578,7 +830,6 @@ function CounsellorDashboard() {
 
                       </div>
                     )}
-
 
                     {/* Action Buttons */}
 
@@ -600,7 +851,6 @@ function CounsellorDashboard() {
                           ✅ Complete
                         </button>
 
-
                         <button
                           onClick={() => {
                             setSelectedAppointment(
@@ -619,7 +869,6 @@ function CounsellorDashboard() {
 
                       </div>
                     )}
-
 
                     {/* Edit Notes */}
 
@@ -645,7 +894,6 @@ function CounsellorDashboard() {
                     )}
 
                   </div>
-
                 )
               )}
 
@@ -657,10 +905,9 @@ function CounsellorDashboard() {
 
       </div>
 
-
-      {/* ================================================= */}
-      {/* NOTES MODAL */}
-      {/* ================================================= */}
+      {/* =================================================
+          NOTES MODAL
+      ================================================= */}
 
       {selectedAppointment && (
 
@@ -686,7 +933,6 @@ function CounsellorDashboard() {
 
             </div>
 
-
             <p className="text-gray-500 mt-2">
 
               Student:{" "}
@@ -699,7 +945,6 @@ function CounsellorDashboard() {
 
             </p>
 
-
             <textarea
               value={notes}
               onChange={(e) =>
@@ -709,7 +954,6 @@ function CounsellorDashboard() {
               placeholder="Enter consultation notes..."
               className="w-full mt-5 border rounded-xl p-4 outline-none focus:ring-2 focus:ring-blue-500"
             />
-
 
             <div className="flex justify-end gap-3 mt-5">
 
@@ -722,7 +966,6 @@ function CounsellorDashboard() {
               >
                 Cancel
               </button>
-
 
               <button
                 onClick={saveNotes}
