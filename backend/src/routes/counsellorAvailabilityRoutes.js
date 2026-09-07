@@ -4,54 +4,93 @@ const authMiddleware =
   require("../middleware/authMiddleware");
 
 const {
-  getCounsellorAvailability,
-  addCounsellorAvailability,
-  updateCounsellorAvailability,
-  deleteCounsellorAvailability,
+  getAvailability,
+  createAvailability,
+  updateAvailability,
+  deleteAvailability,
 } = require("../controllers/counsellorAvailabilityController");
+
+const router = express.Router();
 
 const requireRole =
   authMiddleware.requireRole;
 
-const router = express.Router();
-
 // =====================================================
-// COUNSELLOR AVAILABILITY ROUTES
-// All routes require:
-// 1. Valid JWT
-// 2. Counsellor role
+// ALL AVAILABILITY ROUTES REQUIRE COUNSELLOR LOGIN
 // =====================================================
 
+router.use(authMiddleware);
+
+router.use(
+  requireRole("counsellor")
+);
+
+// =====================================================
 // GET COUNSELLOR AVAILABILITY
+// =====================================================
+//
+// GET /api/counsellor-availability/:user_id
+//
+// The user_id parameter is retained for
+// frontend compatibility.
+// The authenticated JWT user is used
+// by the controller for security.
+//
+
 router.get(
   "/:user_id",
-  authMiddleware,
-  requireRole("counsellor"),
-  getCounsellorAvailability
+  getAvailability
 );
 
-// ADD COUNSELLOR AVAILABILITY
+// =====================================================
+// CREATE AVAILABILITY
+// =====================================================
+//
+// POST /api/counsellor-availability/:user_id
+//
+// Example body:
+//
+// {
+//   "day_of_week": "Monday",
+//   "start_time": "09:00",
+//   "end_time": "12:00",
+//   "is_available": true
+// }
+
 router.post(
   "/:user_id",
-  authMiddleware,
-  requireRole("counsellor"),
-  addCounsellorAvailability
+  createAvailability
 );
 
-// UPDATE COUNSELLOR AVAILABILITY
+// =====================================================
+// UPDATE AVAILABILITY
+// =====================================================
+//
+// PUT /api/counsellor-availability/slot/:id
+//
+// Example body:
+//
+// {
+//   "day_of_week": "Monday",
+//   "start_time": "10:00",
+//   "end_time": "13:00",
+//   "is_available": true
+// }
+
 router.put(
   "/slot/:id",
-  authMiddleware,
-  requireRole("counsellor"),
-  updateCounsellorAvailability
+  updateAvailability
 );
 
-// DELETE COUNSELLOR AVAILABILITY
+// =====================================================
+// DELETE AVAILABILITY
+// =====================================================
+//
+// DELETE /api/counsellor-availability/slot/:id
+
 router.delete(
   "/slot/:id",
-  authMiddleware,
-  requireRole("counsellor"),
-  deleteCounsellorAvailability
+  deleteAvailability
 );
 
 module.exports = router;

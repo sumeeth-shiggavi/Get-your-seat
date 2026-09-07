@@ -1,86 +1,153 @@
 const pool = require("../config/database");
 
 // =====================================================
-// GET ALL PUBLISHED NOTICES
+// HELPERS
 // =====================================================
 
-const getNotices = async (req, res) => {
-  try {
-    const { exam } = req.query;
+const VALID_EXAMS = ["KCET", "NEET"];
 
-    let query = `
-      SELECT
-        n.id,
-        n.exam,
-        n.title,
-        n.summary,
-        n.official_link,
-        n.published_date,
-        n.expiry_date,
-        n.is_important,
-        n.is_published,
-        n.created_at,
-        n.updated_at,
-        c.id AS counsellor_id,
-        u.full_name AS counsellor_name
-      FROM notices n
-      JOIN counsellors c
-        ON n.created_by = c.id
-      JOIN users u
-        ON c.user_id = u.id
-      WHERE n.is_published = true
-        AND (
-          n.expiry_date IS NULL
-          OR n.expiry_date >= CURRENT_DATE
-        )
-    `;
+const normalizeExam = (exam) => {
+  if (!exam) {
+    return null;
+  }
 
-    const values = [];
+  return String(exam)
+    .trim()
+    .toUpperCase();
+};
 
-    if (exam) {
-      const normalizedExam =
-        exam.toUpperCase();
+const isValidDate = (value) => {
+  if (!value) {
+    return true;
+  }
 
-      if (
-        !["KCET", "NEET"].includes(
-          normalizedExam
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Exam must be either KCET or NEET.",
-        });
-      }
+  const date = new Date(value);
 
-      values.push(normalizedExam);
+  return !Number.isNaN(
+    date.getTime()
+  );
+};
 
-      query += `
-        AND n.exam = $1
-      `;
+const cleanText = (value) => {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return "";
+  }
+
+  return String(value).trim();
+};
+
+const getCounsellorByUserId =
+  async (userId) => {
+    const result =
+      await pool.query(
+        `
+        SELECT
+          c.id,
+          c.user_id,
+          c.is_verified
+        FROM counsellors c
+        WHERE c.user_id = $1
+        `,
+        [userId]
+      );
+
+    if (
+      result.rows.length === 0
+    ) {
+      return null;
     }
 
-    query += `
-      ORDER BY
-        n.is_important DESC,
-        n.published_date DESC,
-        n.created_at DESC
-    `;
+    return result.rows[0];
+  };
+
+// =====================================================
+// GET PUBLISHED NOTICES
+// =====================================================
+//
+// GET /api/notices
+//
+// Optional:
+// /api/notices?exam=KCET
+// /api/notices?exam=NEET
+//
+// =====================================================
+
+const getNotices = async (
+  req,
+  res
+) => {
+  try {
+    const exam =
+      normalizeExam(
+        req.query.exam
+      );
+
+    if (
+      exam &&
+      !VALID_EXAMS.includes(exam)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Exam must be either KCET or NEET.",
+      });
+    }
+
+    const values = [];
+    let examCondition = "";
+
+    if (exam) {
+      values.push(exam);
+
+      examCondition =
+        `AND exam = $${values.length}`;
+    }
 
     const result =
-      await pool.query(query, values);
+      await pool.query(
+        `
+        SELECT
+          id,
+          exam,
+          title,
+          summary,
+          official_link,
+          published_date,
+          expiry_date,
+          is_important,
+          is_published,
+          created_at,
+          updated_at
+        FROM notices
+        WHERE is_published = TRUE
+          AND (
+            expiry_date IS NULL
+            OR expiry_date >= CURRENT_DATE
+          )
+          ${examCondition}
+        ORDER BY
+          is_important DESC,
+          published_date DESC,
+          created_at DESC
+        `,
+        values
+      );
 
-    res.json({
+    return res.json({
       success: true,
+      count: result.rows.length,
       data: result.rows,
     });
   } catch (error) {
     console.error(
-      "Get notices error:",
+      "Get published notices error:",
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Failed to fetch notices.",
@@ -89,25 +156,23 @@ const getNotices = async (req, res) => {
 };
 
 // =====================================================
-// GET ALL NOTICES FOR COUNSELLOR MANAGEMENT
+// GET ALL NOTICES FOR COUNSELLOR
+// =====================================================
+//
+// GET /api/notices/manage
+//
 // =====================================================
 
 const getAllNoticesForCounsellor =
   async (req, res) => {
     try {
-      const counsellorResult =
-        await pool.query(
-          `
-          SELECT id
-          FROM counsellors
-          WHERE user_id = $1
-          `,
-          [req.user.id]
+      const counsellor =
+        await getCounsellorByUserId(
+          req.user.user_id ||
+            req.user.id
         );
 
-      if (
-        counsellorResult.rows.length === 0
-      ) {
+      if (!counsellor) {
         return res.status(404).json({
           success: false,
           message:
@@ -115,36 +180,43 @@ const getAllNoticesForCounsellor =
         });
       }
 
-      const result =
-        await pool.query(`
-        SELECT
-          n.id,
-          n.exam,
-          n.title,
-          n.summary,
-          n.official_link,
-          n.published_date,
-          n.expiry_date,
-          n.is_important,
-          n.is_published,
-          n.created_at,
-          n.updated_at,
-          c.id AS counsellor_id,
-          u.full_name AS counsellor_name
-        FROM notices n
-        JOIN counsellors c
-          ON n.created_by = c.id
-        JOIN users u
-          ON c.user_id = u.id
-        ORDER BY
-          n.is_published DESC,
-          n.is_important DESC,
-          n.published_date DESC,
-          n.created_at DESC
-      `);
+      if (
+        !counsellor.is_verified
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only verified counsellors can manage notices.",
+        });
+      }
 
-      res.json({
+      const result =
+        await pool.query(
+          `
+          SELECT
+            id,
+            exam,
+            title,
+            summary,
+            official_link,
+            published_date,
+            expiry_date,
+            is_important,
+            is_published,
+            created_at,
+            updated_at
+          FROM notices
+          WHERE created_by = $1
+          ORDER BY
+            published_date DESC,
+            created_at DESC
+          `,
+          [counsellor.id]
+        );
+
+      return res.json({
         success: true,
+        count: result.rows.length,
         data: result.rows,
       });
     } catch (error) {
@@ -153,10 +225,10 @@ const getAllNoticesForCounsellor =
         error
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message:
-          "Failed to fetch notices.",
+          "Failed to fetch counsellor notices.",
       });
     }
   };
@@ -164,9 +236,43 @@ const getAllNoticesForCounsellor =
 // =====================================================
 // CREATE NOTICE
 // =====================================================
+//
+// POST /api/notices
+//
+// =====================================================
 
-const createNotice = async (req, res) => {
+const createNotice = async (
+  req,
+  res
+) => {
+  const client =
+    await pool.connect();
+
   try {
+    const counsellor =
+      await getCounsellorByUserId(
+        req.user.user_id ||
+          req.user.id
+      );
+
+    if (!counsellor) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Counsellor profile not found.",
+      });
+    }
+
+    if (
+      !counsellor.is_verified
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Only verified counsellors can create notices.",
+      });
+    }
+
     const {
       exam,
       title,
@@ -178,23 +284,23 @@ const createNotice = async (req, res) => {
       is_published,
     } = req.body;
 
-    if (
-      !exam ||
-      !title ||
-      !summary
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Exam, title and summary are required.",
-      });
-    }
-
     const normalizedExam =
-      exam.toUpperCase();
+      normalizeExam(exam);
+
+    const cleanTitle =
+      cleanText(title);
+
+    const cleanSummary =
+      cleanText(summary);
+
+    const cleanOfficialLink =
+      cleanText(
+        official_link
+      );
 
     if (
-      !["KCET", "NEET"].includes(
+      !normalizedExam ||
+      !VALID_EXAMS.includes(
         normalizedExam
       )
     ) {
@@ -205,43 +311,109 @@ const createNotice = async (req, res) => {
       });
     }
 
+    if (!cleanTitle) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Notice title is required.",
+      });
+    }
+
+    if (!cleanSummary) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Notice summary is required.",
+      });
+    }
+
     if (
-      expiry_date &&
-      published_date &&
-      expiry_date < published_date
+      cleanTitle.length >
+      255
     ) {
       return res.status(400).json({
         success: false,
         message:
-          "Expiry date cannot be before published date.",
+          "Notice title must not exceed 255 characters.",
       });
     }
-
-    const counsellorResult =
-      await pool.query(
-        `
-        SELECT id
-        FROM counsellors
-        WHERE user_id = $1
-        `,
-        [req.user.id]
-      );
 
     if (
-      counsellorResult.rows.length === 0
+      published_date &&
+      !isValidDate(
+        published_date
+      )
     ) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
         message:
-          "Counsellor profile not found.",
+          "Invalid published date.",
       });
     }
 
-    const counsellorId =
-      counsellorResult.rows[0].id;
+    if (
+      expiry_date &&
+      !isValidDate(expiry_date)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid expiry date.",
+      });
+    }
+
+    if (
+      published_date &&
+      expiry_date
+    ) {
+      const published =
+        new Date(
+          published_date
+        );
+
+      const expiry =
+        new Date(
+          expiry_date
+        );
+
+      if (expiry < published) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Expiry date cannot be before the published date.",
+        });
+      }
+    }
+
+    if (
+      cleanOfficialLink &&
+      !/^https?:\/\//i.test(
+        cleanOfficialLink
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Official link must start with http:// or https://.",
+      });
+    }
+
+    const important =
+      is_important === true ||
+      is_important === "true";
+
+    const published =
+      is_published === undefined
+        ? true
+        : is_published === true ||
+          is_published === "true";
+
+    await client.query(
+      "BEGIN"
+    );
 
     const result =
-      await pool.query(
+      await client.query(
         `
         INSERT INTO notices (
           exam,
@@ -259,54 +431,163 @@ const createNotice = async (req, res) => {
           $2,
           $3,
           $4,
-          COALESCE($5, CURRENT_DATE),
-          $6,
-          COALESCE($7, false),
-          COALESCE($8, true),
+          COALESCE($5::date, CURRENT_DATE),
+          $6::date,
+          $7,
+          $8,
           $9
         )
-        RETURNING *
+        RETURNING
+          id,
+          exam,
+          title,
+          summary,
+          official_link,
+          published_date,
+          expiry_date,
+          is_important,
+          is_published,
+          created_at,
+          updated_at
         `,
         [
           normalizedExam,
-          title.trim(),
-          summary.trim(),
-          official_link || null,
-          published_date || null,
-          expiry_date || null,
-          is_important ?? false,
-          is_published ?? true,
-          counsellorId,
+          cleanTitle,
+          cleanSummary,
+          cleanOfficialLink ||
+            null,
+          published_date ||
+            null,
+          expiry_date ||
+            null,
+          important,
+          published,
+          counsellor.id,
         ]
       );
 
-    res.status(201).json({
+    await client.query(
+      "COMMIT"
+    );
+
+    return res.status(201).json({
       success: true,
       message:
         "Notice created successfully.",
       data: result.rows[0],
     });
   } catch (error) {
+    await client.query(
+      "ROLLBACK"
+    );
+
     console.error(
       "Create notice error:",
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Failed to create notice.",
     });
+  } finally {
+    client.release();
   }
 };
 
 // =====================================================
 // UPDATE NOTICE
 // =====================================================
+//
+// PUT /api/notices/:id
+//
+// =====================================================
 
-const updateNotice = async (req, res) => {
+const updateNotice = async (
+  req,
+  res
+) => {
+  const client =
+    await pool.connect();
+
   try {
-    const { id } = req.params;
+    const noticeId =
+      Number(req.params.id);
+
+    if (
+      !Number.isInteger(
+        noticeId
+      ) ||
+      noticeId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid notice ID.",
+      });
+    }
+
+    const counsellor =
+      await getCounsellorByUserId(
+        req.user.user_id ||
+          req.user.id
+      );
+
+    if (!counsellor) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Counsellor profile not found.",
+      });
+    }
+
+    if (
+      !counsellor.is_verified
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Only verified counsellors can update notices.",
+      });
+    }
+
+    const existing =
+      await pool.query(
+        `
+        SELECT
+          id,
+          exam,
+          title,
+          summary,
+          official_link,
+          published_date,
+          expiry_date,
+          is_important,
+          is_published
+        FROM notices
+        WHERE id = $1
+          AND created_by = $2
+        `,
+        [
+          noticeId,
+          counsellor.id,
+        ]
+      );
+
+    if (
+      existing.rows.length ===
+      0
+    ) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Notice not found or you are not authorized to update it.",
+      });
+    }
+
+    const current =
+      existing.rows[0];
 
     const {
       exam,
@@ -319,23 +600,56 @@ const updateNotice = async (req, res) => {
       is_published,
     } = req.body;
 
-    if (
-      !exam ||
-      !title ||
-      !summary
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Exam, title and summary are required.",
-      });
-    }
-
     const normalizedExam =
-      exam.toUpperCase();
+      exam !== undefined
+        ? normalizeExam(exam)
+        : current.exam;
+
+    const cleanTitle =
+      title !== undefined
+        ? cleanText(title)
+        : current.title;
+
+    const cleanSummary =
+      summary !== undefined
+        ? cleanText(summary)
+        : current.summary;
+
+    const cleanOfficialLink =
+      official_link !== undefined
+        ? cleanText(
+            official_link
+          )
+        : current.official_link;
+
+    const finalPublishedDate =
+      published_date !==
+      undefined
+        ? published_date
+        : current.published_date;
+
+    const finalExpiryDate =
+      expiry_date !==
+      undefined
+        ? expiry_date
+        : current.expiry_date;
+
+    const important =
+      is_important !==
+      undefined
+        ? is_important === true ||
+          is_important === "true"
+        : current.is_important;
+
+    const published =
+      is_published !==
+      undefined
+        ? is_published === true ||
+          is_published === "true"
+        : current.is_published;
 
     if (
-      !["KCET", "NEET"].includes(
+      !VALID_EXAMS.includes(
         normalizedExam
       )
     ) {
@@ -346,64 +660,104 @@ const updateNotice = async (req, res) => {
       });
     }
 
+    if (!cleanTitle) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Notice title is required.",
+      });
+    }
+
+    if (!cleanSummary) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Notice summary is required.",
+      });
+    }
+
     if (
-      expiry_date &&
-      published_date &&
-      expiry_date < published_date
+      cleanTitle.length >
+      255
     ) {
       return res.status(400).json({
         success: false,
         message:
-          "Expiry date cannot be before published date.",
+          "Notice title must not exceed 255 characters.",
       });
     }
-
-    const counsellorResult =
-      await pool.query(
-        `
-        SELECT id
-        FROM counsellors
-        WHERE user_id = $1
-        `,
-        [req.user.id]
-      );
 
     if (
-      counsellorResult.rows.length === 0
+      finalPublishedDate &&
+      !isValidDate(
+        finalPublishedDate
+      )
     ) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
         message:
-          "Counsellor profile not found.",
+          "Invalid published date.",
       });
     }
-
-    const counsellorId =
-      counsellorResult.rows[0].id;
-
-    const existingResult =
-      await pool.query(
-        `
-        SELECT id
-        FROM notices
-        WHERE id = $1
-          AND created_by = $2
-        `,
-        [id, counsellorId]
-      );
 
     if (
-      existingResult.rows.length === 0
+      finalExpiryDate &&
+      !isValidDate(
+        finalExpiryDate
+      )
     ) {
-      return res.status(404).json({
+      return res.status(400).json({
         success: false,
         message:
-          "Notice not found or you are not allowed to edit it.",
+          "Invalid expiry date.",
       });
     }
+
+    if (
+      finalPublishedDate &&
+      finalExpiryDate
+    ) {
+      const publishedDate =
+        new Date(
+          finalPublishedDate
+        );
+
+      const expiryDate =
+        new Date(
+          finalExpiryDate
+        );
+
+      if (
+        expiryDate <
+        publishedDate
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Expiry date cannot be before the published date.",
+        });
+      }
+    }
+
+    if (
+      cleanOfficialLink &&
+      !/^https?:\/\//i.test(
+        cleanOfficialLink
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Official link must start with http:// or https://.",
+      });
+    }
+
+    await client.query(
+      "BEGIN"
+    );
 
     const result =
-      await pool.query(
+      await client.query(
         `
         UPDATE notices
         SET
@@ -411,70 +765,109 @@ const updateNotice = async (req, res) => {
           title = $2,
           summary = $3,
           official_link = $4,
-          published_date = COALESCE($5, published_date),
-          expiry_date = $6,
-          is_important = COALESCE($7, false),
-          is_published = COALESCE($8, true),
+          published_date = $5::date,
+          expiry_date = $6::date,
+          is_important = $7,
+          is_published = $8,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $9
           AND created_by = $10
-        RETURNING *
+        RETURNING
+          id,
+          exam,
+          title,
+          summary,
+          official_link,
+          published_date,
+          expiry_date,
+          is_important,
+          is_published,
+          created_at,
+          updated_at
         `,
         [
           normalizedExam,
-          title.trim(),
-          summary.trim(),
-          official_link || null,
-          published_date || null,
-          expiry_date || null,
-          is_important ?? false,
-          is_published ?? true,
-          id,
-          counsellorId,
+          cleanTitle,
+          cleanSummary,
+          cleanOfficialLink ||
+            null,
+          finalPublishedDate ||
+            null,
+          finalExpiryDate ||
+            null,
+          important,
+          published,
+          noticeId,
+          counsellor.id,
         ]
       );
 
-    res.json({
+    await client.query(
+      "COMMIT"
+    );
+
+    return res.json({
       success: true,
       message:
         "Notice updated successfully.",
       data: result.rows[0],
     });
   } catch (error) {
+    await client.query(
+      "ROLLBACK"
+    );
+
     console.error(
       "Update notice error:",
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Failed to update notice.",
     });
+  } finally {
+    client.release();
   }
 };
 
 // =====================================================
 // DELETE NOTICE
 // =====================================================
+//
+// DELETE /api/notices/:id
+//
+// =====================================================
 
-const deleteNotice = async (req, res) => {
+const deleteNotice = async (
+  req,
+  res
+) => {
   try {
-    const { id } = req.params;
-
-    const counsellorResult =
-      await pool.query(
-        `
-        SELECT id
-        FROM counsellors
-        WHERE user_id = $1
-        `,
-        [req.user.id]
-      );
+    const noticeId =
+      Number(req.params.id);
 
     if (
-      counsellorResult.rows.length === 0
+      !Number.isInteger(
+        noticeId
+      ) ||
+      noticeId <= 0
     ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid notice ID.",
+      });
+    }
+
+    const counsellor =
+      await getCounsellorByUserId(
+        req.user.user_id ||
+          req.user.id
+      );
+
+    if (!counsellor) {
       return res.status(404).json({
         success: false,
         message:
@@ -482,8 +875,15 @@ const deleteNotice = async (req, res) => {
       });
     }
 
-    const counsellorId =
-      counsellorResult.rows[0].id;
+    if (
+      !counsellor.is_verified
+    ) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Only verified counsellors can delete notices.",
+      });
+    }
 
     const result =
       await pool.query(
@@ -493,18 +893,24 @@ const deleteNotice = async (req, res) => {
           AND created_by = $2
         RETURNING id
         `,
-        [id, counsellorId]
+        [
+          noticeId,
+          counsellor.id,
+        ]
       );
 
-    if (result.rows.length === 0) {
+    if (
+      result.rows.length ===
+      0
+    ) {
       return res.status(404).json({
         success: false,
         message:
-          "Notice not found or you are not allowed to delete it.",
+          "Notice not found or you are not authorized to delete it.",
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message:
         "Notice deleted successfully.",
@@ -515,7 +921,7 @@ const deleteNotice = async (req, res) => {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Failed to delete notice.",
@@ -524,27 +930,39 @@ const deleteNotice = async (req, res) => {
 };
 
 // =====================================================
-// TOGGLE PUBLISH STATUS
+// TOGGLE NOTICE PUBLISH STATUS
+// =====================================================
+//
+// PATCH /api/notices/:id/publish
+//
 // =====================================================
 
 const toggleNoticePublish =
   async (req, res) => {
     try {
-      const { id } = req.params;
-
-      const counsellorResult =
-        await pool.query(
-          `
-          SELECT id
-          FROM counsellors
-          WHERE user_id = $1
-          `,
-          [req.user.id]
-        );
+      const noticeId =
+        Number(req.params.id);
 
       if (
-        counsellorResult.rows.length === 0
+        !Number.isInteger(
+          noticeId
+        ) ||
+        noticeId <= 0
       ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid notice ID.",
+        });
+      }
+
+      const counsellor =
+        await getCounsellorByUserId(
+          req.user.user_id ||
+            req.user.id
+        );
+
+      if (!counsellor) {
         return res.status(404).json({
           success: false,
           message:
@@ -552,39 +970,84 @@ const toggleNoticePublish =
         });
       }
 
-      const counsellorId =
-        counsellorResult.rows[0].id;
+      if (
+        !counsellor.is_verified
+      ) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only verified counsellors can publish notices.",
+        });
+      }
+
+      const existing =
+        await pool.query(
+          `
+          SELECT
+            id,
+            is_published
+          FROM notices
+          WHERE id = $1
+            AND created_by = $2
+          `,
+          [
+            noticeId,
+            counsellor.id,
+          ]
+        );
+
+      if (
+        existing.rows.length ===
+        0
+      ) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Notice not found or you are not authorized to modify it.",
+        });
+      }
+
+      const currentStatus =
+        existing.rows[0]
+          .is_published;
+
+      const newStatus =
+        !currentStatus;
 
       const result =
         await pool.query(
           `
           UPDATE notices
           SET
-            is_published =
-              NOT is_published,
-            updated_at =
-              CURRENT_TIMESTAMP
-          WHERE id = $1
-            AND created_by = $2
-          RETURNING *
+            is_published = $1,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+            AND created_by = $3
+          RETURNING
+            id,
+            exam,
+            title,
+            summary,
+            official_link,
+            published_date,
+            expiry_date,
+            is_important,
+            is_published,
+            created_at,
+            updated_at
           `,
-          [id, counsellorId]
+          [
+            newStatus,
+            noticeId,
+            counsellor.id,
+          ]
         );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "Notice not found or you are not allowed to modify it.",
-        });
-      }
-
-      res.json({
+      return res.json({
         success: true,
-        message:
-          result.rows[0].is_published
-            ? "Notice published successfully."
-            : "Notice unpublished successfully.",
+        message: newStatus
+          ? "Notice published successfully."
+          : "Notice unpublished successfully.",
         data: result.rows[0],
       });
     } catch (error) {
@@ -593,13 +1056,17 @@ const toggleNoticePublish =
         error
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message:
-          "Failed to update notice status.",
+          "Failed to update notice publish status.",
       });
     }
   };
+
+// =====================================================
+// EXPORTS
+// =====================================================
 
 module.exports = {
   getNotices,

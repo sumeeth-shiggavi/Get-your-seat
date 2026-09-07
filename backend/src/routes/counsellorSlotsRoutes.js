@@ -7,17 +7,24 @@ const {
   getAvailableSlots,
 } = require("../controllers/counsellorSlotsController");
 
+const router = express.Router();
+
 const requireRole =
   authMiddleware.requireRole;
 
-const router = express.Router();
-
 // =====================================================
-// AVAILABLE COUNSELLOR SLOTS
-// Requires:
-// 1. Valid JWT
-// 2. Student role
+// GET AVAILABLE COUNSELLING SLOTS
 // =====================================================
+//
+// GET /api/counsellor-slots/:counsellor_id?date=YYYY-MM-DD
+//
+// Example:
+// /api/counsellor-slots/1?date=2026-09-10
+//
+// This route is protected because appointment
+// availability is part of the authenticated
+// student booking flow.
+//
 
 router.get(
   "/:counsellor_id",

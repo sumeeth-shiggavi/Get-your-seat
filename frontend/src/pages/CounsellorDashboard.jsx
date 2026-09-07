@@ -1,1248 +1,1261 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { Link } from "react-router-dom";
 
-function CounsellorDashboard() {
-  const navigate = useNavigate();
+const API_BASE_URL =
+  "http://localhost:5000";
 
-  const [user, setUser] = useState(null);
+const getStoredUser = () => {
+  try {
+    const storedUser =
+      localStorage.getItem("user");
 
-  const [counsellor, setCounsellor] = useState(null);
-  const [appointments, setAppointments] = useState([]);
+    return storedUser
+      ? JSON.parse(storedUser)
+      : null;
+  } catch (error) {
+    console.error(
+      "Failed to read stored user:",
+      error
+    );
 
-  const [statistics, setStatistics] = useState({
-    total: 0,
-    scheduled: 0,
-    rescheduled: 0,
-    completed: 0,
-    cancelled: 0,
-    today: 0,
-    upcoming: 0,
-  });
+    return null;
+  }
+};
 
-  const [todayAppointments, setTodayAppointments] =
-    useState([]);
+const getUserId = (user) => {
+  return (
+    user?.user_id ??
+    user?.id ??
+    null
+  );
+};
 
-  const [upcomingAppointments, setUpcomingAppointments] =
-    useState([]);
+const getToken = () => {
+  return localStorage.getItem(
+    "token"
+  );
+};
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+const formatDate = (date) => {
+  if (!date) {
+    return "—";
+  }
 
-  const [selectedAppointment, setSelectedAppointment] =
+  const parsedDate =
+    new Date(
+      `${String(date).substring(
+        0,
+        10
+      )}T00:00:00`
+    );
+
+  if (
+    Number.isNaN(
+      parsedDate.getTime()
+    )
+  ) {
+    return String(date);
+  }
+
+  return parsedDate.toLocaleDateString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }
+  );
+};
+
+const formatTime = (time) => {
+  if (!time) {
+    return "—";
+  }
+
+  const parts = String(time)
+    .substring(0, 5)
+    .split(":")
+    .map(Number);
+
+  if (
+    parts.length < 2 ||
+    Number.isNaN(parts[0]) ||
+    Number.isNaN(parts[1])
+  ) {
+    return String(time);
+  }
+
+  const hours = parts[0];
+  const minutes = parts[1];
+
+  const suffix =
+    hours >= 12 ? "PM" : "AM";
+
+  const displayHour =
+    hours % 12 || 12;
+
+  return `${displayHour}:${String(
+    minutes
+  ).padStart(2, "0")} ${suffix}`;
+};
+
+const getStatusClass = (status) => {
+  switch (
+    String(status).toLowerCase()
+  ) {
+    case "completed":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+
+    case "cancelled":
+      return "bg-red-50 text-red-700 border-red-200";
+
+    case "rescheduled":
+      return "bg-amber-50 text-amber-700 border-amber-200";
+
+    default:
+      return "bg-blue-50 text-blue-700 border-blue-200";
+  }
+};
+
+const isToday = (date) => {
+  if (!date) {
+    return false;
+  }
+
+  const today =
+    new Date();
+
+  const selected =
+    new Date(
+      `${String(date).substring(
+        0,
+        10
+      )}T00:00:00`
+    );
+
+  return (
+    today.getFullYear() ===
+      selected.getFullYear() &&
+    today.getMonth() ===
+      selected.getMonth() &&
+    today.getDate() ===
+      selected.getDate()
+  );
+};
+
+const isUpcoming = (appointment) => {
+  if (
+    !appointment?.appointment_date
+  ) {
+    return false;
+  }
+
+  const appointmentDate =
+    new Date(
+      `${String(
+        appointment.appointment_date
+      ).substring(
+        0,
+        10
+      )}T${
+        String(
+          appointment.start_time ||
+            "00:00"
+        ).substring(0, 5)
+      }:00`
+    );
+
+  return (
+    !Number.isNaN(
+      appointmentDate.getTime()
+    ) &&
+    appointmentDate >= new Date() &&
+    ![
+      "completed",
+      "cancelled",
+    ].includes(
+      String(
+        appointment.status
+      ).toLowerCase()
+    )
+  );
+};
+
+export default function CounsellorDashboard() {
+  const [user, setUser] =
     useState(null);
 
-  const [notes, setNotes] = useState("");
+  const [dashboard, setDashboard] =
+    useState(null);
 
-  // =====================================================
-  // GET AUTHENTICATED USER
-  // =====================================================
+  const [appointments, setAppointments] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [actionLoading, setActionLoading] =
+    useState(null);
+
+  const [error, setError] =
+    useState("");
+
+  const [success, setSuccess] =
+    useState("");
+
+  const [search, setSearch] =
+    useState("");
+
+  const [statusFilter, setStatusFilter] =
+    useState("all");
+
+  const [notes, setNotes] =
+    useState({});
 
   useEffect(() => {
-    try {
-      const storedUser =
-        localStorage.getItem("user");
+    const storedUser =
+      getStoredUser();
 
-      const storedToken =
-        localStorage.getItem("token");
-
-      if (!storedUser || !storedToken) {
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      const parsedUser =
-        JSON.parse(storedUser);
-
-      if (
-        !parsedUser ||
-        parsedUser.role !== "counsellor"
-      ) {
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      const userId =
-        parsedUser.user_id ??
-        parsedUser.id;
-
-      if (!userId) {
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        localStorage.removeItem("loginData");
-
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      const normalizedUser = {
-        ...parsedUser,
-        user_id: userId,
-        id:
-          parsedUser.id ??
-          userId,
-      };
-
-      setUser(normalizedUser);
-    } catch (error) {
-      console.error(
-        "Invalid user information:",
-        error
+    if (!storedUser) {
+      setError(
+        "Please log in to access the counsellor dashboard."
       );
 
-      localStorage.removeItem("user");
-      localStorage.removeItem("token");
-      localStorage.removeItem("loginData");
+      setLoading(false);
 
-      navigate("/login", {
-        replace: true,
-      });
+      return;
     }
-  }, [navigate]);
 
-  // =====================================================
-  // FETCH DASHBOARD
-  // =====================================================
+    if (
+      storedUser.role &&
+      storedUser.role !==
+        "counsellor"
+    ) {
+      setError(
+        "Only counsellors can access this dashboard."
+      );
 
-  const fetchDashboard = async () => {
-    try {
-      setError("");
+      setLoading(false);
 
+      return;
+    }
+
+    setUser(storedUser);
+  }, []);
+
+  const loadDashboard =
+    async () => {
       const storedUser =
-        localStorage.getItem("user");
+        getStoredUser();
+
+      const userId =
+        getUserId(storedUser);
 
       const token =
-        localStorage.getItem("token");
+        getToken();
 
-      if (!storedUser || !token) {
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      const loggedInUser =
-        JSON.parse(storedUser);
-
-      if (
-        !loggedInUser ||
-        loggedInUser.role !== "counsellor"
-      ) {
+      if (!userId || !token) {
         setError(
-          "Only counsellors can access this dashboard."
+          "Authentication information is missing. Please log in again."
         );
 
-        return;
-      }
-
-      const userId =
-        loggedInUser.user_id ??
-        loggedInUser.id;
-
-      if (!userId) {
-        setError(
-          "Counsellor account information is incomplete. Please log in again."
-        );
-
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        localStorage.removeItem("loginData");
-
-        navigate("/login", {
-          replace: true,
-        });
+        setLoading(false);
 
         return;
       }
-
-      const response = await fetch(
-        `http://localhost:5000/api/counsellor-dashboard/${userId}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization:
-              `Bearer ${token}`,
-          },
-        }
-      );
-
-      let data = {};
 
       try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
+        setLoading(true);
+        setError("");
 
-      if (response.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        localStorage.removeItem("loginData");
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/counsellor-dashboard/${userId}`,
+            {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
 
-        navigate("/login", {
-          replace: true,
-        });
+        const result =
+          await response.json();
 
-        return;
-      }
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+              "Failed to load dashboard."
+          );
+        }
 
-      if (response.status === 403) {
+        const dashboardData =
+          result.data || {};
+
+        setDashboard(
+          dashboardData
+        );
+
+        const appointmentData =
+          dashboardData.appointments ||
+          [];
+
+        setAppointments(
+          appointmentData
+        );
+
+        const initialNotes = {};
+
+        appointmentData.forEach(
+          (appointment) => {
+            initialNotes[
+              appointment.id
+            ] =
+              appointment.notes ||
+              "";
+          }
+        );
+
+        setNotes(initialNotes);
+      } catch (requestError) {
+        console.error(
+          "Dashboard loading error:",
+          requestError
+        );
+
         setError(
-          data.message ||
-            "You are not authorized to access the counsellor dashboard."
+          requestError.message ||
+            "Unable to load dashboard."
         );
-
-        return;
+      } finally {
+        setLoading(false);
       }
-
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message ||
-            "Failed to load counsellor dashboard."
-        );
-      }
-
-      setCounsellor(
-        data.data?.counsellor || null
-      );
-
-      setAppointments(
-        Array.isArray(
-          data.data?.appointments
-        )
-          ? data.data.appointments
-          : []
-      );
-
-      setStatistics({
-        total:
-          data.data?.statistics?.total || 0,
-
-        scheduled:
-          data.data?.statistics?.scheduled || 0,
-
-        rescheduled:
-          data.data?.statistics?.rescheduled || 0,
-
-        completed:
-          data.data?.statistics?.completed || 0,
-
-        cancelled:
-          data.data?.statistics?.cancelled || 0,
-
-        today:
-          data.data?.statistics?.today || 0,
-
-        upcoming:
-          data.data?.statistics?.upcoming || 0,
-      });
-
-      setTodayAppointments(
-        Array.isArray(
-          data.data?.todayAppointments
-        )
-          ? data.data.todayAppointments
-          : []
-      );
-
-      setUpcomingAppointments(
-        Array.isArray(
-          data.data?.upcomingAppointments
-        )
-          ? data.data.upcomingAppointments
-          : []
-      );
-    } catch (error) {
-      console.error(
-        "Counsellor dashboard error:",
-        error
-      );
-
-      setError(
-        error.message ||
-          "Failed to load counsellor dashboard."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // =====================================================
-  // LOAD DASHBOARD
-  // =====================================================
+    };
 
   useEffect(() => {
     if (user) {
-      fetchDashboard();
+      loadDashboard();
     }
   }, [user]);
 
-  // =====================================================
-  // COMPLETE APPOINTMENT
-  // =====================================================
+  const filteredAppointments =
+    useMemo(() => {
+      const searchValue =
+        search
+          .trim()
+          .toLowerCase();
 
-  const completeAppointment = async (id) => {
-    try {
-      const token =
-        localStorage.getItem("token");
+      return appointments.filter(
+        (appointment) => {
+          const studentName =
+            String(
+              appointment.student_name ||
+                appointment.full_name ||
+                ""
+            ).toLowerCase();
 
-      if (!token) {
-        navigate("/login", {
-          replace: true,
-        });
+          const studentEmail =
+            String(
+              appointment.student_email ||
+                appointment.email ||
+                ""
+            ).toLowerCase();
 
-        return;
-      }
+          const status =
+            String(
+              appointment.status ||
+                ""
+            ).toLowerCase();
 
-      const response = await fetch(
-        `http://localhost:5000/api/counsellor-dashboard/appointments/${id}/complete`,
-        {
-          method: "PATCH",
+          const matchesSearch =
+            !searchValue ||
+            studentName.includes(
+              searchValue
+            ) ||
+            studentEmail.includes(
+              searchValue
+            );
 
-          headers: {
-            Authorization:
-              `Bearer ${token}`,
-          },
+          const matchesStatus =
+            statusFilter === "all" ||
+            status ===
+              statusFilter;
+
+          return (
+            matchesSearch &&
+            matchesStatus
+          );
         }
       );
+    }, [
+      appointments,
+      search,
+      statusFilter,
+    ]);
 
-      let data = {};
+  const stats = useMemo(() => {
+    const total =
+      appointments.length;
 
-      try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
+    const scheduled =
+      appointments.filter(
+        (appointment) =>
+          [
+            "scheduled",
+            "rescheduled",
+          ].includes(
+            String(
+              appointment.status
+            ).toLowerCase()
+          )
+      ).length;
 
-      if (response.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        localStorage.removeItem("loginData");
+    const completed =
+      appointments.filter(
+        (appointment) =>
+          String(
+            appointment.status
+          ).toLowerCase() ===
+          "completed"
+      ).length;
 
-        navigate("/login", {
-          replace: true,
-        });
+    const cancelled =
+      appointments.filter(
+        (appointment) =>
+          String(
+            appointment.status
+          ).toLowerCase() ===
+          "cancelled"
+      ).length;
+
+    const today =
+      appointments.filter(
+        (appointment) =>
+          isToday(
+            appointment.appointment_date
+          ) &&
+          ![
+            "completed",
+            "cancelled",
+          ].includes(
+            String(
+              appointment.status
+            ).toLowerCase()
+          )
+      ).length;
+
+    return {
+      total,
+      scheduled,
+      completed,
+      cancelled,
+      today,
+    };
+  }, [appointments]);
+
+  const handleComplete =
+    async (appointmentId) => {
+      const token =
+        getToken();
+
+      if (!token) {
+        setError(
+          "Authentication token is missing."
+        );
 
         return;
       }
 
-      if (response.status === 403) {
-        throw new Error(
-          data.message ||
-            "You are not authorized to complete this appointment."
+      try {
+        setActionLoading(
+          `complete-${appointmentId}`
         );
-      }
 
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message ||
+        setError("");
+        setSuccess("");
+
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/counsellor-dashboard/appointments/${appointmentId}/complete`,
+            {
+              method: "PATCH",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type":
+                  "application/json",
+              },
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+              "Failed to complete appointment."
+          );
+        }
+
+        setSuccess(
+          "Appointment marked as completed successfully."
+        );
+
+        await loadDashboard();
+      } catch (requestError) {
+        console.error(
+          "Complete appointment error:",
+          requestError
+        );
+
+        setError(
+          requestError.message ||
             "Failed to complete appointment."
         );
+      } finally {
+        setActionLoading(null);
       }
+    };
 
-      alert(
-        "Appointment marked as completed."
-      );
-
-      await fetchDashboard();
-    } catch (error) {
-      console.error(
-        "Complete appointment error:",
-        error
-      );
-
-      alert(
-        error.message ||
-          "Failed to complete appointment."
-      );
-    }
-  };
-
-  // =====================================================
-  // SAVE NOTES
-  // =====================================================
-
-  const saveNotes = async () => {
-    try {
-      if (!selectedAppointment) {
-        return;
-      }
-
+  const handleSaveNotes =
+    async (appointmentId) => {
       const token =
-        localStorage.getItem("token");
+        getToken();
 
       if (!token) {
-        navigate("/login", {
-          replace: true,
-        });
+        setError(
+          "Authentication token is missing."
+        );
 
         return;
       }
-
-      const response = await fetch(
-        `http://localhost:5000/api/counsellor-dashboard/appointments/${selectedAppointment.id}/notes`,
-        {
-          method: "PATCH",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            Authorization:
-              `Bearer ${token}`,
-          },
-
-          body: JSON.stringify({
-            notes: notes,
-          }),
-        }
-      );
-
-      let data = {};
 
       try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
-
-      if (response.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        localStorage.removeItem("loginData");
-
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      if (response.status === 403) {
-        throw new Error(
-          data.message ||
-            "You are not authorized to update these notes."
+        setActionLoading(
+          `notes-${appointmentId}`
         );
-      }
 
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message ||
+        setError("");
+        setSuccess("");
+
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/counsellor-dashboard/appointments/${appointmentId}/notes`,
+            {
+              method: "PATCH",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                notes:
+                  notes[
+                    appointmentId
+                  ] || "",
+              }),
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+              "Failed to save notes."
+          );
+        }
+
+        setSuccess(
+          "Appointment notes saved successfully."
+        );
+
+        await loadDashboard();
+      } catch (requestError) {
+        console.error(
+          "Save notes error:",
+          requestError
+        );
+
+        setError(
+          requestError.message ||
             "Failed to save notes."
         );
+      } finally {
+        setActionLoading(null);
       }
+    };
 
-      alert(
-        "Consultation notes saved successfully."
-      );
-
-      setSelectedAppointment(null);
-      setNotes("");
-
-      await fetchDashboard();
-    } catch (error) {
-      console.error(
-        "Save notes error:",
-        error
-      );
-
-      alert(
-        error.message ||
-          "Failed to save notes."
-      );
-    }
-  };
-
-  // =====================================================
-  // FORMAT DATE
-  // =====================================================
-
-  const formatDate = (date) => {
-    if (!date) {
-      return "";
-    }
-
-    return new Date(
-      date
-    ).toLocaleDateString(
-      "en-IN",
-      {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }
-    );
-  };
-
-  // =====================================================
-  // FORMAT TIME
-  // =====================================================
-
-  const formatTime = (time) => {
-    if (!time) {
-      return "";
-    }
-
-    const [
-      hours,
-      minutes,
-    ] = time
-      .split(":")
-      .map(Number);
-
-    const date = new Date();
-
-    date.setHours(hours);
-    date.setMinutes(minutes);
-
-    return date.toLocaleTimeString(
-      "en-IN",
-      {
-        hour: "2-digit",
-        minute: "2-digit",
-      }
-    );
-  };
-
-  // =====================================================
-  // STATUS STYLING
-  // =====================================================
-
-  const getStatusClass = (status) => {
-    if (status === "completed") {
-      return "bg-green-100 text-green-700";
-    }
-
-    if (status === "cancelled") {
-      return "bg-red-100 text-red-700";
-    }
-
-    if (status === "rescheduled") {
-      return "bg-yellow-100 text-yellow-700";
-    }
-
-    return "bg-blue-100 text-blue-700";
-  };
-
-  // =====================================================
-  // STATUS TEXT
-  // =====================================================
-
-  const getStatusText = (status) => {
-    if (!status) {
-      return "";
-    }
-
-    return (
-      status.charAt(0).toUpperCase() +
-      status.slice(1)
-    );
-  };
-
-  // =====================================================
-  // APPOINTMENT CARD
-  // =====================================================
-
-  const renderAppointmentCard = (
-    appointment,
-    compact = false
+  const updateNote = (
+    appointmentId,
+    value
   ) => {
-    return (
-      <div
-        key={appointment.id}
-        className={`border rounded-xl p-5 hover:shadow-md transition ${
-          compact
-            ? "bg-gray-50"
-            : "bg-white"
-        }`}
-      >
-        {/* Appointment Header */}
-
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-
-          <div>
-            <h3 className="text-xl font-bold text-gray-800">
-              👤{" "}
-              {appointment.student_name ||
-                "Student"}
-            </h3>
-
-            <p className="text-gray-500 mt-1">
-              {appointment.student_email ||
-                "Email not provided"}
-            </p>
-
-            <p className="text-gray-500">
-              📞{" "}
-              {appointment.student_phone ||
-                "Not provided"}
-            </p>
-          </div>
-
-          <span
-            className={`px-4 py-2 rounded-full text-sm font-bold ${getStatusClass(
-              appointment.status
-            )}`}
-          >
-            {getStatusText(
-              appointment.status
-            )}
-          </span>
-
-        </div>
-
-        {/* Appointment Details */}
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
-
-          <div className="bg-gray-50 rounded-lg p-4">
-            <p className="text-sm text-gray-500">
-              Date
-            </p>
-
-            <p className="font-semibold text-gray-800 mt-1">
-              📅{" "}
-              {formatDate(
-                appointment.appointment_date
-              )}
-            </p>
-          </div>
-
-          <div className="bg-gray-50 rounded-lg p-4">
-            <p className="text-sm text-gray-500">
-              Time
-            </p>
-
-            <p className="font-semibold text-gray-800 mt-1">
-              🕐{" "}
-              {formatTime(
-                appointment.start_time
-              )}{" "}
-              -{" "}
-              {formatTime(
-                appointment.end_time
-              )}
-            </p>
-          </div>
-
-          <div className="bg-gray-50 rounded-lg p-4">
-            <p className="text-sm text-gray-500">
-              Preferred Course
-            </p>
-
-            <p className="font-semibold text-gray-800 mt-1">
-              🎓{" "}
-              {appointment.preferred_course ||
-                "Not specified"}
-            </p>
-          </div>
-
-        </div>
-
-        {/* Student Information */}
-
-        <div className="mt-5 p-4 bg-blue-50 rounded-xl">
-
-          <h4 className="font-bold text-blue-800">
-            Student Information
-          </h4>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 text-sm">
-
-            <p>
-              <span className="font-semibold">
-                Gender:
-              </span>{" "}
-              {appointment.gender ||
-                "Not specified"}
-            </p>
-
-            <p>
-              <span className="font-semibold">
-                City:
-              </span>{" "}
-              {appointment.city ||
-                "Not specified"}
-            </p>
-
-            <p>
-              <span className="font-semibold">
-                State:
-              </span>{" "}
-              {appointment.state ||
-                "Not specified"}
-            </p>
-
-            <p>
-              <span className="font-semibold">
-                Preferred Location:
-              </span>{" "}
-              {appointment.preferred_location ||
-                "Not specified"}
-            </p>
-
-          </div>
-        </div>
-
-        {/* Existing Notes */}
-
-        {appointment.notes && (
-          <div className="mt-4 p-4 bg-yellow-50 rounded-xl">
-
-            <p className="font-semibold text-yellow-800">
-              📝 Consultation Notes
-            </p>
-
-            <p className="text-gray-700 mt-1 whitespace-pre-wrap">
-              {appointment.notes}
-            </p>
-
-          </div>
-        )}
-
-        {/* Meeting Link */}
-
-        {appointment.meeting_link && (
-          <div className="mt-4 p-4 bg-purple-50 rounded-xl">
-
-            <p className="font-semibold text-purple-800">
-              🔗 Meeting Details
-            </p>
-
-            <a
-              href={
-                appointment.meeting_link
-              }
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-600 hover:underline break-all"
-            >
-              Join Meeting
-            </a>
-
-          </div>
-        )}
-
-        {/* Action Buttons */}
-
-        {(appointment.status ===
-          "scheduled" ||
-          appointment.status ===
-            "rescheduled") && (
-
-          <div className="flex flex-wrap gap-3 mt-5">
-
-            <button
-              onClick={() =>
-                completeAppointment(
-                  appointment.id
-                )
-              }
-              className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
-            >
-              ✅ Complete
-            </button>
-
-            <button
-              onClick={() => {
-                setSelectedAppointment(
-                  appointment
-                );
-
-                setNotes(
-                  appointment.notes ||
-                    ""
-                );
-              }}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
-            >
-              📝 Add Notes
-            </button>
-
-          </div>
-        )}
-
-        {/* Edit Notes */}
-
-        {appointment.status ===
-          "completed" && (
-
-          <button
-            onClick={() => {
-              setSelectedAppointment(
-                appointment
-              );
-
-              setNotes(
-                appointment.notes ||
-                  ""
-              );
-            }}
-            className="mt-5 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
-          >
-            📝 Edit Notes
-          </button>
-        )}
-
-      </div>
-    );
+    setNotes((previous) => ({
+      ...previous,
+      [appointmentId]:
+        value,
+    }));
   };
-
-  // =====================================================
-  // LOADING
-  // =====================================================
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
         <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto" />
 
-          <div className="text-5xl mb-4">
-            👨‍⚕️
-          </div>
-
-          <p className="text-lg text-gray-600">
+          <p className="mt-4 text-slate-600 font-medium">
             Loading counsellor dashboard...
           </p>
-
         </div>
-
       </div>
     );
   }
 
-  // =====================================================
-  // PAGE
-  // =====================================================
-
-  return (
-    <div className="min-h-screen bg-gray-50 py-10">
-
-      <div className="max-w-7xl mx-auto px-6">
-
-        {/* =================================================
-            HEADER
-        ================================================= */}
-
-        <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
-
-            <div>
-
-              <h1 className="text-3xl font-bold text-gray-800">
-                👨‍⚕️ Counsellor Dashboard
-              </h1>
-
-              {counsellor && (
-                <div className="mt-4">
-
-                  <h2 className="text-xl font-semibold text-blue-700">
-                    {counsellor.full_name}
-                  </h2>
-
-                  <p className="text-gray-600 mt-1">
-                    {counsellor.specialization}
-                  </p>
-
-                  <p className="text-gray-500 mt-1">
-                    {counsellor.qualification}{" "}
-                    •{" "}
-                    {counsellor.experience_years}{" "}
-                    years experience
-                  </p>
-
-                </div>
-              )}
-
-            </div>
-
-            {/* Dashboard Actions */}
-
-            <div className="flex flex-col sm:flex-row gap-3">
-
-              <button
-                onClick={() =>
-                  fetchDashboard()
-                }
-                className="px-5 py-3 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 transition"
-              >
-                🔄 Refresh
-              </button>
-
-              <button
-                onClick={() =>
-                  navigate(
-                    "/counsellor-availability"
-                  )
-                }
-                className="px-5 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
-              >
-                🕐 Manage Availability
-              </button>
-
-              <button
-                onClick={() =>
-                  navigate(
-                    "/counsellor-profile"
-                  )
-                }
-                className="px-5 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
-              >
-                👤 My Profile
-              </button>
-
-            </div>
-
+  if (
+    error &&
+    !dashboard
+  ) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+          <div className="w-14 h-14 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto text-2xl">
+            !
           </div>
 
-        </div>
+          <h1 className="mt-5 text-xl font-bold text-slate-900">
+            Unable to open dashboard
+          </h1>
 
-        {/* ERROR */}
-
-        {error && (
-          <div className="bg-red-100 border border-red-300 text-red-700 p-4 rounded-lg mb-6">
+          <p className="mt-2 text-slate-600">
             {error}
+          </p>
+
+          <div className="mt-6 flex gap-3 justify-center">
+            <button
+              type="button"
+              onClick={
+                loadDashboard
+              }
+              className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition"
+            >
+              Try Again
+            </button>
+
+            <Link
+              to="/"
+              className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition"
+            >
+              Home
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const counsellorName =
+    dashboard?.counsellor
+      ?.full_name ||
+    user?.full_name ||
+    "Counsellor";
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      {/* =================================================
+          HEADER
+      ================================================= */}
+
+      <section className="bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 text-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-blue-50 text-sm font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                Counsellor Portal
+              </div>
+
+              <h1 className="mt-4 text-3xl sm:text-4xl font-bold tracking-tight">
+                Welcome,{" "}
+                {counsellorName}
+              </h1>
+
+              <p className="mt-2 text-blue-100 max-w-2xl">
+                Manage your counselling
+                appointments, student
+                consultations and
+                session notes from one
+                place.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to="/counsellor-availability"
+                className="inline-flex items-center justify-center px-5 py-3 rounded-xl bg-white text-blue-700 font-semibold hover:bg-blue-50 transition shadow-sm"
+              >
+                Manage Availability
+              </Link>
+
+              <Link
+                to="/counsellor-notices"
+                className="inline-flex items-center justify-center px-5 py-3 rounded-xl bg-white/10 border border-white/25 text-white font-semibold hover:bg-white/15 transition"
+              >
+                Manage Notices
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =================================================
+          MAIN CONTENT
+      ================================================= */}
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Alerts */}
+
+        {success && (
+          <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-700 flex items-start justify-between gap-4">
+            <p className="font-medium">
+              {success}
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                setSuccess("")
+              }
+              className="text-emerald-700 hover:text-emerald-900 font-bold"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {error && dashboard && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700 flex items-start justify-between gap-4">
+            <p className="font-medium">
+              {error}
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                setError("")
+              }
+              className="text-red-700 hover:text-red-900 font-bold"
+            >
+              ×
+            </button>
           </div>
         )}
 
         {/* =================================================
-            PRIMARY STATISTICS
+            STATS
         ================================================= */}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-
-          <div className="bg-white rounded-2xl shadow-md p-6">
-            <p className="text-gray-500">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">
               Total Appointments
             </p>
 
-            <p className="text-3xl font-bold text-blue-600 mt-2">
-              {statistics.total}
+            <p className="mt-2 text-3xl font-bold text-slate-900">
+              {dashboard?.stats
+                ?.total_appointments ??
+                stats.total}
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-md p-6">
-            <p className="text-gray-500">
+          <div className="bg-white rounded-2xl border border-blue-100 p-5 shadow-sm">
+            <p className="text-sm font-medium text-blue-600">
               Scheduled
             </p>
 
-            <p className="text-3xl font-bold text-indigo-600 mt-2">
-              {statistics.scheduled}
+            <p className="mt-2 text-3xl font-bold text-blue-700">
+              {dashboard?.stats
+                ?.scheduled_appointments ??
+                stats.scheduled}
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-md p-6">
-            <p className="text-gray-500">
+          <div className="bg-white rounded-2xl border border-emerald-100 p-5 shadow-sm">
+            <p className="text-sm font-medium text-emerald-600">
               Completed
             </p>
 
-            <p className="text-3xl font-bold text-green-600 mt-2">
-              {statistics.completed}
+            <p className="mt-2 text-3xl font-bold text-emerald-700">
+              {dashboard?.stats
+                ?.completed_appointments ??
+                stats.completed}
             </p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-md p-6">
-            <p className="text-gray-500">
+          <div className="bg-white rounded-2xl border border-red-100 p-5 shadow-sm">
+            <p className="text-sm font-medium text-red-600">
               Cancelled
             </p>
 
-            <p className="text-3xl font-bold text-red-600 mt-2">
-              {statistics.cancelled}
+            <p className="mt-2 text-3xl font-bold text-red-700">
+              {dashboard?.stats
+                ?.cancelled_appointments ??
+                stats.cancelled}
             </p>
           </div>
 
+          <div className="bg-white rounded-2xl border border-amber-100 p-5 shadow-sm">
+            <p className="text-sm font-medium text-amber-600">
+              Today
+            </p>
+
+            <p className="mt-2 text-3xl font-bold text-amber-700">
+              {stats.today}
+            </p>
+          </div>
         </div>
 
         {/* =================================================
-            SECONDARY STATISTICS
+            PROFILE SUMMARY
         ================================================= */}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-
-          <div className="bg-white rounded-2xl shadow-md p-6">
-            <p className="text-gray-500">
-              Rescheduled
-            </p>
-
-            <p className="text-3xl font-bold text-yellow-600 mt-2">
-              {statistics.rescheduled}
-            </p>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-md p-6">
-            <p className="text-gray-500">
-              Today's Appointments
-            </p>
-
-            <p className="text-3xl font-bold text-purple-600 mt-2">
-              {statistics.today}
-            </p>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-md p-6">
-            <p className="text-gray-500">
-              Upcoming Appointments
-            </p>
-
-            <p className="text-3xl font-bold text-teal-600 mt-2">
-              {statistics.upcoming}
-            </p>
-          </div>
-
-        </div>
-
-        {/* =================================================
-            TODAY'S APPOINTMENTS
-        ================================================= */}
-
-        <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-
-          <div className="mb-6">
-
-            <h2 className="text-2xl font-bold text-gray-800">
-              📅 Today's Appointments
-            </h2>
-
-            <p className="text-gray-500 mt-1">
-              Appointments scheduled for today.
-            </p>
-
-          </div>
-
-          {todayAppointments.length ===
-          0 ? (
-
-            <div className="text-center py-8">
-
-              <div className="text-4xl mb-3">
-                📭
+        {dashboard?.counsellor && (
+          <div className="mt-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div className="flex flex-col md:flex-row md:items-center gap-5">
+              <div className="w-16 h-16 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-2xl font-bold">
+                {counsellorName
+                  .charAt(0)
+                  .toUpperCase()}
               </div>
 
-              <p className="text-gray-500">
-                No appointments scheduled
-                for today.
-              </p>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-bold text-slate-900">
+                    {counsellorName}
+                  </h2>
 
-            </div>
+                  {dashboard
+                    .counsellor
+                    .is_verified && (
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                      ✓ Verified
+                    </span>
+                  )}
+                </div>
 
-          ) : (
+                <p className="mt-1 text-slate-600">
+                  {dashboard
+                    .counsellor
+                    .specialization ||
+                    "Admissions Counsellor"}
+                </p>
 
-            <div className="space-y-5">
+                <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-500">
+                  <span>
+                    {dashboard
+                      .counsellor
+                      .qualification ||
+                      "Qualification not provided"}
+                  </span>
 
-              {todayAppointments.map(
-                (appointment) =>
-                  renderAppointmentCard(
-                    appointment,
-                    true
-                  )
-              )}
+                  <span>
+                    {dashboard
+                      .counsellor
+                      .experience_years ??
+                      0}{" "}
+                    years experience
+                  </span>
 
-            </div>
-          )}
-
-        </div>
-
-        {/* =================================================
-            UPCOMING APPOINTMENTS
-        ================================================= */}
-
-        <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-
-          <div className="mb-6">
-
-            <h2 className="text-2xl font-bold text-gray-800">
-              🔜 Upcoming Appointments
-            </h2>
-
-            <p className="text-gray-500 mt-1">
-              Your scheduled and rescheduled
-              upcoming consultations.
-            </p>
-
-          </div>
-
-          {upcomingAppointments.length ===
-          0 ? (
-
-            <div className="text-center py-8">
-
-              <div className="text-4xl mb-3">
-                📭
+                  {dashboard
+                    .counsellor
+                    .consultation_fee !=
+                    null && (
+                    <span>
+                      ₹
+                      {Number(
+                        dashboard
+                          .counsellor
+                          .consultation_fee
+                      ).toLocaleString(
+                        "en-IN"
+                      )}{" "}
+                      / session
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <p className="text-gray-500">
-                No upcoming appointments.
-              </p>
-
+              <Link
+                to="/counsellor-profile"
+                className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition"
+              >
+                Edit Profile
+              </Link>
             </div>
-
-          ) : (
-
-            <div className="space-y-5">
-
-              {upcomingAppointments
-                .slice(0, 5)
-                .map((appointment) =>
-                  renderAppointmentCard(
-                    appointment,
-                    true
-                  )
-                )}
-
-            </div>
-          )}
-
-        </div>
+          </div>
+        )}
 
         {/* =================================================
-            ALL APPOINTMENTS
+            APPOINTMENTS
         ================================================= */}
 
-        <div className="bg-white rounded-2xl shadow-md p-6">
-
-          <div className="mb-6">
-
-            <h2 className="text-2xl font-bold text-gray-800">
-              📋 All Appointments
-            </h2>
-
-            <p className="text-gray-500 mt-1">
-              Manage all your counselling
-              appointments.
-            </p>
-
-          </div>
-
-          {appointments.length === 0 ? (
-
-            <div className="text-center py-12">
-
-              <div className="text-5xl mb-4">
-                📭
-              </div>
-
-              <h3 className="text-xl font-bold text-gray-700">
-                No Appointments
-              </h3>
-
-              <p className="text-gray-500 mt-2">
-                You don't have any appointments
-                yet.
+        <section className="mt-8">
+          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-5">
+            <div>
+              <p className="text-sm font-semibold text-blue-600 uppercase tracking-wide">
+                Consultation Management
               </p>
 
-            </div>
-
-          ) : (
-
-            <div className="space-y-5">
-
-              {appointments.map(
-                (appointment) =>
-                  renderAppointmentCard(
-                    appointment
-                  )
-              )}
-
-            </div>
-          )}
-
-        </div>
-
-      </div>
-
-      {/* =================================================
-          NOTES MODAL
-      ================================================= */}
-
-      {selectedAppointment && (
-
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
-
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-
-            <div className="flex items-center justify-between">
-
-              <h2 className="text-xl font-bold text-gray-800">
-                📝 Consultation Notes
+              <h2 className="mt-1 text-2xl font-bold text-slate-900">
+                Appointments
               </h2>
 
-              <button
-                onClick={() => {
-                  setSelectedAppointment(
-                    null
-                  );
-
-                  setNotes("");
-                }}
-                className="text-gray-500 hover:text-gray-800 text-2xl"
-              >
-                ×
-              </button>
-
+              <p className="mt-1 text-slate-500">
+                View student consultations
+                and manage completed
+                sessions.
+              </p>
             </div>
 
-            <p className="text-gray-500 mt-2">
-
-              Student:{" "}
-
-              <span className="font-semibold">
-                {selectedAppointment.student_name}
-              </span>
-
-            </p>
-
-            <textarea
-              value={notes}
-              onChange={(e) =>
-                setNotes(e.target.value)
+            <button
+              type="button"
+              onClick={
+                loadDashboard
               }
-              rows="6"
-              placeholder="Enter consultation notes..."
-              className="w-full mt-5 border rounded-xl p-4 outline-none focus:ring-2 focus:ring-blue-500"
-            />
-
-            <div className="flex justify-end gap-3 mt-5">
-
-              <button
-                onClick={() => {
-                  setSelectedAppointment(
-                    null
-                  );
-
-                  setNotes("");
-                }}
-                className="px-4 py-2 border rounded-lg font-semibold hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-
-              <button
-                onClick={saveNotes}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
-              >
-                Save Notes
-              </button>
-
-            </div>
-
+              className="self-start lg:self-auto px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
+            >
+              ↻ Refresh
+            </button>
           </div>
 
-        </div>
-      )}
+          {/* Filters */}
 
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Search student
+                </label>
+
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(event) =>
+                    setSearch(
+                      event.target
+                        .value
+                    )
+                  }
+                  placeholder="Search by student name or email..."
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Status
+                </label>
+
+                <select
+                  value={
+                    statusFilter
+                  }
+                  onChange={(event) =>
+                    setStatusFilter(
+                      event.target
+                        .value
+                    )
+                  }
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">
+                    All statuses
+                  </option>
+                  <option value="scheduled">
+                    Scheduled
+                  </option>
+                  <option value="rescheduled">
+                    Rescheduled
+                  </option>
+                  <option value="completed">
+                    Completed
+                  </option>
+                  <option value="cancelled">
+                    Cancelled
+                  </option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {filteredAppointments.length ===
+          0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-10 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-2xl">
+                📅
+              </div>
+
+              <h3 className="mt-4 text-lg font-bold text-slate-900">
+                No appointments found
+              </h3>
+
+              <p className="mt-1 text-slate-500 max-w-md mx-auto">
+                There are no appointments
+                matching the selected
+                filters.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredAppointments.map(
+                (appointment) => {
+                  const status =
+                    String(
+                      appointment.status ||
+                        "scheduled"
+                    ).toLowerCase();
+
+                  const studentName =
+                    appointment.student_name ||
+                    appointment.full_name ||
+                    "Student";
+
+                  const studentEmail =
+                    appointment.student_email ||
+                    appointment.email ||
+                    "";
+
+                  const canComplete =
+                    [
+                      "scheduled",
+                      "rescheduled",
+                    ].includes(
+                      status
+                    );
+
+                  const upcoming =
+                    isUpcoming(
+                      appointment
+                    );
+
+                  return (
+                    <article
+                      key={
+                        appointment.id
+                      }
+                      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+                    >
+                      <div className="p-5 sm:p-6">
+                        <div className="flex flex-col xl:flex-row xl:items-start gap-5">
+                          {/* Student */}
+
+                          <div className="flex items-start gap-4 flex-1 min-w-0">
+                            <div className="w-12 h-12 shrink-0 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-lg">
+                              {studentName
+                                .charAt(
+                                  0
+                                )
+                                .toUpperCase()}
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="font-bold text-slate-900 text-lg">
+                                  {
+                                    studentName
+                                  }
+                                </h3>
+
+                                {upcoming && (
+                                  <span className="px-2 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold">
+                                    Upcoming
+                                  </span>
+                                )}
+                              </div>
+
+                              {studentEmail && (
+                                <p className="mt-1 text-sm text-slate-500 break-all">
+                                  {
+                                    studentEmail
+                                  }
+                                </p>
+                              )}
+
+                              {appointment.student_phone && (
+                                <p className="mt-1 text-sm text-slate-500">
+                                  {
+                                    appointment.student_phone
+                                  }
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Appointment Info */}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 xl:min-w-[540px]">
+                            <div>
+                              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                                Date
+                              </p>
+
+                              <p className="mt-1 font-semibold text-slate-800">
+                                {formatDate(
+                                  appointment.appointment_date
+                                )}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                                Time
+                              </p>
+
+                              <p className="mt-1 font-semibold text-slate-800">
+                                {formatTime(
+                                  appointment.start_time
+                                )}
+                                {" – "}
+                                {formatTime(
+                                  appointment.end_time
+                                )}
+                              </p>
+                            </div>
+
+                            <div>
+                              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                                Status
+                              </p>
+
+                              <span
+                                className={`inline-flex mt-1 px-2.5 py-1 rounded-full border text-xs font-semibold ${getStatusClass(
+                                  status
+                                )}`}
+                              >
+                                {status
+                                  .charAt(
+                                    0
+                                  )
+                                  .toUpperCase() +
+                                  status.slice(
+                                    1
+                                  )}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Meeting link */}
+
+                        {appointment.meeting_link && (
+                          <div className="mt-5 rounded-xl bg-blue-50 border border-blue-100 p-4">
+                            <p className="text-sm font-semibold text-blue-800">
+                              Meeting Link
+                            </p>
+
+                            <a
+                              href={
+                                appointment.meeting_link
+                              }
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-block mt-1 text-sm text-blue-700 hover:text-blue-900 font-medium break-all"
+                            >
+                              {
+                                appointment.meeting_link
+                              }
+                            </a>
+                          </div>
+                        )}
+
+                        {/* Notes */}
+
+                        <div className="mt-5">
+                          <label
+                            htmlFor={`notes-${appointment.id}`}
+                            className="block text-sm font-semibold text-slate-700 mb-2"
+                          >
+                            Session Notes
+                          </label>
+
+                          <textarea
+                            id={`notes-${appointment.id}`}
+                            rows="3"
+                            value={
+                              notes[
+                                appointment.id
+                              ] ??
+                              ""
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              updateNote(
+                                appointment.id,
+                                event
+                                  .target
+                                  .value
+                              )
+                            }
+                            placeholder="Add notes about this student's counselling session..."
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          />
+
+                          <div className="mt-3 flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              disabled={
+                                actionLoading ===
+                                `notes-${appointment.id}`
+                              }
+                              onClick={() =>
+                                handleSaveNotes(
+                                  appointment.id
+                                )
+                              }
+                              className="px-4 py-2.5 rounded-xl bg-slate-900 text-white font-semibold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            >
+                              {actionLoading ===
+                              `notes-${appointment.id}`
+                                ? "Saving..."
+                                : "Save Notes"}
+                            </button>
+
+                            {canComplete && (
+                              <button
+                                type="button"
+                                disabled={
+                                  actionLoading ===
+                                  `complete-${appointment.id}`
+                                }
+                                onClick={() =>
+                                  handleComplete(
+                                    appointment.id
+                                  )
+                                }
+                                className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                              >
+                                {actionLoading ===
+                                `complete-${appointment.id}`
+                                  ? "Completing..."
+                                  : "Mark Completed"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                }
+              )}
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   );
 }
-
-export default CounsellorDashboard;

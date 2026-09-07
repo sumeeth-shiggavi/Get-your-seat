@@ -1,818 +1,696 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, {
+  useEffect,
+  useState,
+} from "react";
 
-function CounsellorProfile() {
-  const navigate = useNavigate();
+const API_BASE_URL =
+  "http://localhost:5000";
 
-  const [formData, setFormData] = useState({
-    full_name: "",
-    email: "",
-    phone: "",
-    specialization: "",
-    experience_years: "",
-    qualification: "",
-    bio: "",
-    consultation_fee: "",
-  });
+const getStoredUser = () => {
+  try {
+    const storedUser =
+      localStorage.getItem("user");
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+    return storedUser
+      ? JSON.parse(storedUser)
+      : null;
+  } catch (error) {
+    console.error(
+      "Failed to read stored user:",
+      error
+    );
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+    return null;
+  }
+};
 
-  // =====================================================
-  // GET STORED USER
-  // =====================================================
+const getUserId = (user) => {
+  return (
+    user?.user_id ??
+    user?.id ??
+    null
+  );
+};
 
-  const getStoredUser = () => {
-    try {
-      const storedUser =
-        localStorage.getItem("user");
+const getToken = () => {
+  return localStorage.getItem(
+    "token"
+  );
+};
 
-      const token =
-        localStorage.getItem("token");
+const initialForm = {
+  specialization: "",
+  experience_years: "",
+  qualification: "",
+  bio: "",
+  consultation_fee: "",
+};
 
-      if (!storedUser || !token) {
-        return {
-          user: null,
-          token: null,
-        };
-      }
+export default function CounsellorProfile() {
+  const [user, setUser] =
+    useState(null);
 
-      const parsedUser =
-        JSON.parse(storedUser);
+  const [form, setForm] =
+    useState(initialForm);
 
-      const normalizedUser = {
-        ...parsedUser,
-        user_id:
-          parsedUser.user_id ??
-          parsedUser.id,
-        id:
-          parsedUser.id ??
-          parsedUser.user_id,
-      };
+  const [loading, setLoading] =
+    useState(true);
 
-      return {
-        user: normalizedUser,
-        token,
-      };
-    } catch (err) {
-      console.error(
-        "Stored user parsing error:",
-        err
-      );
+  const [saving, setSaving] =
+    useState(false);
 
-      return {
-        user: null,
-        token: null,
-      };
-    }
-  };
+  const [error, setError] =
+    useState("");
 
-  // =====================================================
-  // LOGOUT / SESSION EXPIRY
-  // =====================================================
+  const [success, setSuccess] =
+    useState("");
 
-  const handleSessionExpired = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("loginData");
-
-    navigate("/login");
-  };
-
-  // =====================================================
-  // FETCH PROFILE
-  // =====================================================
-
-  const fetchProfile = async () => {
-    try {
-      setError("");
-
-      const { user, token } =
-        getStoredUser();
-
-      if (!user || !token) {
-        setError(
-          "Please login as a counsellor to access this page."
-        );
-
-        setLoading(false);
-        return;
-      }
-
-      if (user.role !== "counsellor") {
-        setError(
-          "You are not authorized to access the counsellor profile."
-        );
-
-        setLoading(false);
-        return;
-      }
-
-      if (!user.user_id) {
-        setError(
-          "Unable to identify your account. Please login again."
-        );
-
-        setLoading(false);
-        return;
-      }
-
-      const response = await fetch(
-        `http://localhost:5000/api/counsellor-profile/${user.user_id}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (response.status === 401) {
-        handleSessionExpired();
-        return;
-      }
-
-      if (response.status === 403) {
-        setError(
-          "You are not authorized to view this profile."
-        );
-
-        setLoading(false);
-        return;
-      }
-
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message ||
-            "Failed to load counsellor profile."
-        );
-      }
-
-      const profile = data.data;
-
-      setFormData({
-        full_name:
-          profile.full_name || "",
-
-        email:
-          profile.email || "",
-
-        phone:
-          profile.phone || "",
-
-        specialization:
-          profile.specialization || "",
-
-        experience_years:
-          profile.experience_years ?? "",
-
-        qualification:
-          profile.qualification || "",
-
-        bio:
-          profile.bio || "",
-
-        consultation_fee:
-          profile.consultation_fee ?? "",
-      });
-    } catch (err) {
-      console.error(
-        "Counsellor profile error:",
-        err
-      );
-
-      setError(
-        err.message ||
-          "Unable to load profile."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [verified, setVerified] =
+    useState(false);
 
   useEffect(() => {
-    fetchProfile();
+    const storedUser =
+      getStoredUser();
+
+    if (!storedUser) {
+      setError(
+        "Please log in to access your counsellor profile."
+      );
+
+      setLoading(false);
+
+      return;
+    }
+
+    if (
+      storedUser.role &&
+      storedUser.role !==
+        "counsellor"
+    ) {
+      setError(
+        "Only counsellors can access this page."
+      );
+
+      setLoading(false);
+
+      return;
+    }
+
+    setUser(storedUser);
   }, []);
 
-  // =====================================================
-  // HANDLE INPUT CHANGE
-  // =====================================================
+  useEffect(() => {
+    if (user) {
+      loadProfile();
+    }
+  }, [user]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
+  const loadProfile =
+    async () => {
+      const userId =
+        getUserId(user);
 
-    setFormData((previous) => ({
+      const token =
+        getToken();
+
+      if (!userId || !token) {
+        setError(
+          "Authentication information is missing. Please log in again."
+        );
+
+        setLoading(false);
+
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/counsellor-profile/${userId}`,
+            {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+              "Failed to load profile."
+          );
+        }
+
+        const profile =
+          result.data ||
+          result.counsellor ||
+          {};
+
+        setForm({
+          specialization:
+            profile.specialization ||
+            "",
+          experience_years:
+            profile.experience_years ??
+            "",
+          qualification:
+            profile.qualification ||
+            "",
+          bio:
+            profile.bio ||
+            "",
+          consultation_fee:
+            profile.consultation_fee ??
+            "",
+        });
+
+        setVerified(
+          profile.is_verified ===
+            true
+        );
+      } catch (requestError) {
+        console.error(
+          "Load counsellor profile error:",
+          requestError
+        );
+
+        setError(
+          requestError.message ||
+            "Failed to load profile."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+  const handleChange = (
+    event
+  ) => {
+    const {
+      name,
+      value,
+    } = event.target;
+
+    setForm((previous) => ({
       ...previous,
       [name]: value,
     }));
 
-    setSuccess("");
     setError("");
+    setSuccess("");
   };
 
-  // =====================================================
-  // UPDATE PROFILE
-  // =====================================================
+  const handleSubmit =
+    async (event) => {
+      event.preventDefault();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+      const userId =
+        getUserId(user);
 
-    setError("");
-    setSuccess("");
+      const token =
+        getToken();
 
-    const { user, token } =
-      getStoredUser();
-
-    if (!user || !token) {
-      setError(
-        "Please login as a counsellor to update your profile."
-      );
-      return;
-    }
-
-    if (user.role !== "counsellor") {
-      setError(
-        "You are not authorized to update this profile."
-      );
-      return;
-    }
-
-    if (!user.user_id) {
-      setError(
-        "Unable to identify your account. Please login again."
-      );
-      return;
-    }
-
-    // -------------------------------------------------
-    // Required field validation
-    // -------------------------------------------------
-
-    if (
-      !formData.full_name.trim() ||
-      !formData.phone.trim() ||
-      !formData.specialization ||
-      formData.experience_years === "" ||
-      !formData.qualification.trim()
-    ) {
-      setError(
-        "Please fill all required fields."
-      );
-
-      return;
-    }
-
-    // -------------------------------------------------
-    // Experience validation
-    // -------------------------------------------------
-
-    if (
-      Number(formData.experience_years) < 0
-    ) {
-      setError(
-        "Experience cannot be negative."
-      );
-
-      return;
-    }
-
-    // -------------------------------------------------
-    // Consultation fee validation
-    // -------------------------------------------------
-
-    if (
-      formData.consultation_fee !== "" &&
-      Number(formData.consultation_fee) < 0
-    ) {
-      setError(
-        "Consultation fee cannot be negative."
-      );
-
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const response = await fetch(
-        `http://localhost:5000/api/counsellor-profile/${user.user_id}`,
-        {
-          method: "PUT",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            Authorization:
-              `Bearer ${token}`,
-          },
-
-          body: JSON.stringify({
-            full_name:
-              formData.full_name.trim(),
-
-            phone:
-              formData.phone.trim(),
-
-            specialization:
-              formData.specialization,
-
-            experience_years:
-              Number(
-                formData.experience_years
-              ),
-
-            qualification:
-              formData.qualification.trim(),
-
-            bio:
-              formData.bio.trim(),
-
-            consultation_fee:
-              formData.consultation_fee === ""
-                ? 0
-                : Number(
-                    formData.consultation_fee
-                  ),
-          }),
-        }
-      );
-
-      const data =
-        await response.json();
-
-      // -------------------------------------------------
-      // Authentication errors
-      // -------------------------------------------------
-
-      if (response.status === 401) {
-        handleSessionExpired();
-        return;
-      }
-
-      if (response.status === 403) {
+      if (!userId || !token) {
         setError(
-          "You are not authorized to update this profile."
+          "Authentication information is missing. Please log in again."
         );
 
         return;
       }
 
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message ||
+      const experience =
+        Number(
+          form.experience_years
+        );
+
+      const fee =
+        Number(
+          form.consultation_fee
+        );
+
+      if (
+        form.experience_years !==
+          "" &&
+        (!Number.isInteger(
+          experience
+        ) ||
+          experience < 0)
+      ) {
+        setError(
+          "Experience must be a valid non-negative whole number."
+        );
+
+        return;
+      }
+
+      if (
+        form.consultation_fee !==
+          "" &&
+        (Number.isNaN(fee) ||
+          fee < 0)
+      ) {
+        setError(
+          "Consultation fee must be a valid non-negative amount."
+        );
+
+        return;
+      }
+
+      try {
+        setSaving(true);
+        setError("");
+        setSuccess("");
+
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/counsellor-profile/${userId}`,
+            {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                specialization:
+                  form.specialization.trim(),
+                experience_years:
+                  form.experience_years ===
+                  ""
+                    ? null
+                    : experience,
+                qualification:
+                  form.qualification.trim(),
+                bio:
+                  form.bio.trim(),
+                consultation_fee:
+                  form.consultation_fee ===
+                  ""
+                    ? null
+                    : fee,
+              }),
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+              "Failed to update profile."
+          );
+        }
+
+        const profile =
+          result.data ||
+          result.counsellor ||
+          {};
+
+        setVerified(
+          profile.is_verified ===
+            true
+        );
+
+        setSuccess(
+          "Your counsellor profile has been updated successfully."
+        );
+
+        await loadProfile();
+      } catch (requestError) {
+        console.error(
+          "Update counsellor profile error:",
+          requestError
+        );
+
+        setError(
+          requestError.message ||
             "Failed to update profile."
         );
+      } finally {
+        setSaving(false);
       }
-
-      // -------------------------------------------------
-      // Update form with returned data
-      // -------------------------------------------------
-
-      if (data.data) {
-        const updatedProfile =
-          data.data;
-
-        setFormData({
-          full_name:
-            updatedProfile.full_name ||
-            "",
-
-          email:
-            updatedProfile.email ||
-            formData.email,
-
-          phone:
-            updatedProfile.phone ||
-            "",
-
-          specialization:
-            updatedProfile.specialization ||
-            "",
-
-          experience_years:
-            updatedProfile.experience_years ??
-            "",
-
-          qualification:
-            updatedProfile.qualification ||
-            "",
-
-          bio:
-            updatedProfile.bio ||
-            "",
-
-          consultation_fee:
-            updatedProfile.consultation_fee ??
-            "",
-        });
-
-        // -------------------------------------------------
-        // Update stored user information
-        // -------------------------------------------------
-
-        const storedUser =
-          getStoredUser().user;
-
-        if (storedUser) {
-          const returnedUser =
-            updatedProfile.user || {};
-
-          const updatedUser = {
-            ...storedUser,
-            ...returnedUser,
-            full_name:
-              updatedProfile.full_name ||
-              returnedUser.full_name ||
-              storedUser.full_name,
-            phone:
-              updatedProfile.phone ||
-              returnedUser.phone ||
-              storedUser.phone,
-            user_id:
-              storedUser.user_id,
-            id:
-              storedUser.id ??
-              storedUser.user_id,
-          };
-
-          localStorage.setItem(
-            "user",
-            JSON.stringify(updatedUser)
-          );
-
-          localStorage.setItem(
-            "loginData",
-            JSON.stringify({
-              user: updatedUser,
-              token,
-            })
-          );
-        }
-      }
-
-      setSuccess(
-        "Profile updated successfully."
-      );
-    } catch (err) {
-      console.error(
-        "Update counsellor profile error:",
-        err
-      );
-
-      setError(
-        err.message ||
-          "Unable to update profile."
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // =====================================================
-  // LOADING
-  // =====================================================
+    };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-lg text-gray-600">
-          Loading counsellor profile...
-        </p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto" />
+
+          <p className="mt-4 text-slate-600 font-medium">
+            Loading profile...
+          </p>
+        </div>
       </div>
     );
   }
 
-  // =====================================================
-  // PAGE
-  // =====================================================
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 max-w-md w-full text-center">
+          <h1 className="text-xl font-bold text-slate-900">
+            Counsellor Profile
+          </h1>
+
+          <p className="mt-2 text-slate-600">
+            {error ||
+              "Please log in to continue."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const counsellorName =
+    user.full_name ||
+    "Counsellor";
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-6">
+    <div className="min-h-screen bg-slate-50">
+      {/* =================================================
+          HEADER
+      ================================================= */}
 
-      <div className="max-w-4xl mx-auto">
-
-        {/* =================================================
-            HEADER
-        ================================================= */}
-
-        <div className="bg-white rounded-2xl shadow-md p-8 mb-6">
-
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-
-            <div>
-
-              <h1 className="text-3xl font-bold text-gray-900">
-                👨‍⚕️ Counsellor Profile
-              </h1>
-
-              <p className="text-gray-500 mt-2">
-                Manage your professional information.
-              </p>
-
+      <section className="bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 text-white">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+            <div className="w-20 h-20 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center text-3xl font-bold">
+              {counsellorName
+                .charAt(0)
+                .toUpperCase()}
             </div>
 
-            <button
-              onClick={() =>
-                navigate(
-                  "/counsellor-dashboard"
-                )
-              }
-              className="px-5 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
-            >
-              ← Dashboard
-            </button>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-3xl font-bold">
+                  {counsellorName}
+                </h1>
 
+                {verified && (
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-400/20 border border-emerald-300/30 text-emerald-100 text-xs font-semibold">
+                    ✓ Verified Counsellor
+                  </span>
+                )}
+              </div>
+
+              <p className="mt-2 text-blue-100">
+                Manage your professional
+                information and
+                consultation details.
+              </p>
+            </div>
           </div>
-
         </div>
+      </section>
 
-        {/* =================================================
-            ERROR
-        ================================================= */}
+      {/* =================================================
+          CONTENT
+      ================================================= */}
 
-        {error && (
-          <div className="bg-red-100 border border-red-300 text-red-700 rounded-lg p-4 mb-6">
-            {error}
-          </div>
-        )}
-
-        {/* =================================================
-            SUCCESS
-        ================================================= */}
-
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {success && (
-          <div className="bg-green-100 border border-green-300 text-green-700 rounded-lg p-4 mb-6">
+          <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-700 font-medium">
             {success}
           </div>
         )}
 
-        {/* =================================================
-            PROFILE FORM
-        ================================================= */}
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700 font-medium">
+            {error}
+          </div>
+        )}
 
-        <div className="bg-white rounded-2xl shadow-md p-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* =================================================
+              PROFILE SUMMARY
+          ================================================= */}
 
-          <form onSubmit={handleSubmit}>
-
-            {/* =================================================
-                PERSONAL INFORMATION
-            ================================================= */}
-
-            <h2 className="text-xl font-bold text-gray-800 mb-5">
-              Personal Information
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-
-              {/* Full Name */}
-
-              <div>
-
-                <label className="block font-semibold text-gray-700 mb-2">
-                  Full Name *
-                </label>
-
-                <input
-                  type="text"
-                  name="full_name"
-                  value={
-                    formData.full_name
-                  }
-                  onChange={handleChange}
-                  placeholder="Enter full name"
-                  required
-                  className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-
-              </div>
-
-              {/* Email */}
-
-              <div>
-
-                <label className="block font-semibold text-gray-700 mb-2">
-                  Email
-                </label>
-
-                <input
-                  type="email"
-                  value={
-                    formData.email
-                  }
-                  disabled
-                  className="w-full border border-gray-300 rounded-lg p-3 bg-gray-100 text-gray-500 cursor-not-allowed"
-                />
-
-                <p className="text-xs text-gray-500 mt-1">
-                  Email cannot be changed.
-                </p>
-
-              </div>
-
-              {/* Phone */}
-
-              <div>
-
-                <label className="block font-semibold text-gray-700 mb-2">
-                  Phone *
-                </label>
-
-                <input
-                  type="tel"
-                  name="phone"
-                  value={
-                    formData.phone
-                  }
-                  onChange={handleChange}
-                  placeholder="Enter phone number"
-                  required
-                  className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-
-              </div>
-
+          <aside className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 h-fit">
+            <div className="w-14 h-14 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center text-xl font-bold">
+              {counsellorName
+                .charAt(0)
+                .toUpperCase()}
             </div>
 
-            {/* =================================================
-                PROFESSIONAL INFORMATION
-            ================================================= */}
-
-            <h2 className="text-xl font-bold text-gray-800 mt-8 mb-5">
-              Professional Information
+            <h2 className="mt-4 text-lg font-bold text-slate-900">
+              {counsellorName}
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <p className="mt-1 text-sm text-slate-500 break-all">
+              {user.email ||
+                "Email not available"}
+            </p>
 
+            {user.phone && (
+              <p className="mt-1 text-sm text-slate-500">
+                {user.phone}
+              </p>
+            )}
+
+            <div className="mt-6 pt-5 border-t border-slate-100">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                Verification
+              </p>
+
+              <div className="mt-2">
+                {verified ? (
+                  <span className="inline-flex px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-semibold">
+                    ✓ Profile Verified
+                  </span>
+                ) : (
+                  <span className="inline-flex px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-sm font-semibold">
+                    Verification Pending
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-xl bg-blue-50 border border-blue-100 p-4">
+              <p className="text-sm font-semibold text-blue-900">
+                Profile tip
+              </p>
+
+              <p className="mt-1 text-sm text-blue-700 leading-6">
+                Keep your qualification,
+                specialization and
+                experience information
+                updated so students can
+                choose the right
+                counsellor.
+              </p>
+            </div>
+          </aside>
+
+          {/* =================================================
+              EDIT FORM
+          ================================================= */}
+
+          <section className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+            <div className="mb-6">
+              <p className="text-sm font-semibold text-blue-600 uppercase tracking-wide">
+                Professional Profile
+              </p>
+
+              <h2 className="mt-1 text-2xl font-bold text-slate-900">
+                Counsellor Information
+              </h2>
+
+              <p className="mt-1 text-slate-500">
+                Update the information
+                students see before
+                booking a consultation.
+              </p>
+            </div>
+
+            <form
+              onSubmit={
+                handleSubmit
+              }
+              className="space-y-6"
+            >
               {/* Specialization */}
 
               <div>
-
-                <label className="block font-semibold text-gray-700 mb-2">
-                  Specialization *
-                </label>
-
-                <select
-                  name="specialization"
-                  value={
-                    formData.specialization
-                  }
-                  onChange={handleChange}
-                  required
-                  className="w-full border border-gray-300 rounded-lg p-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <label
+                  htmlFor="specialization"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
                 >
-
-                  <option value="">
-                    Select specialization
-                  </option>
-
-                  <option value="KCET & Engineering Admissions">
-                    KCET & Engineering Admissions
-                  </option>
-
-                  <option value="JEE & Engineering Admissions">
-                    JEE & Engineering Admissions
-                  </option>
-
-                  <option value="NEET & Medical Admissions">
-                    NEET & Medical Admissions
-                  </option>
-
-                  <option value="University Admissions">
-                    University Admissions
-                  </option>
-
-                  <option value="Career Counselling">
-                    Career Counselling
-                  </option>
-
-                </select>
-
-              </div>
-
-              {/* Experience */}
-
-              <div>
-
-                <label className="block font-semibold text-gray-700 mb-2">
-                  Experience (Years) *
+                  Specialization
                 </label>
 
                 <input
-                  type="number"
-                  name="experience_years"
+                  id="specialization"
+                  name="specialization"
+                  type="text"
                   value={
-                    formData.experience_years
+                    form.specialization
                   }
-                  onChange={handleChange}
-                  min="0"
-                  required
-                  className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={
+                    handleChange
+                  }
+                  placeholder="e.g. NEET & Medical Admissions"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-
               </div>
 
               {/* Qualification */}
 
               <div>
-
-                <label className="block font-semibold text-gray-700 mb-2">
-                  Qualification *
+                <label
+                  htmlFor="qualification"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Qualification
                 </label>
 
                 <input
-                  type="text"
+                  id="qualification"
                   name="qualification"
+                  type="text"
                   value={
-                    formData.qualification
+                    form.qualification
                   }
-                  onChange={handleChange}
-                  placeholder="Example: M.Tech, Ph.D."
-                  required
-                  className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={
+                    handleChange
+                  }
+                  placeholder="e.g. MBBS, MBA, M.Tech"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-
               </div>
 
-              {/* Consultation Fee */}
+              {/* Experience + Fee */}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div>
+                  <label
+                    htmlFor="experience_years"
+                    className="block text-sm font-semibold text-slate-700 mb-2"
+                  >
+                    Experience
+                  </label>
+
+                  <div className="relative">
+                    <input
+                      id="experience_years"
+                      name="experience_years"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={
+                        form.experience_years
+                      }
+                      onChange={
+                        handleChange
+                      }
+                      placeholder="0"
+                      className="w-full px-4 py-3 pr-16 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                      years
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="consultation_fee"
+                    className="block text-sm font-semibold text-slate-700 mb-2"
+                  >
+                    Consultation Fee
+                  </label>
+
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                      ₹
+                    </span>
+
+                    <input
+                      id="consultation_fee"
+                      name="consultation_fee"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={
+                        form.consultation_fee
+                      }
+                      onChange={
+                        handleChange
+                      }
+                      placeholder="500"
+                      className="w-full px-4 py-3 pl-8 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Bio */}
 
               <div>
-
-                <label className="block font-semibold text-gray-700 mb-2">
-                  Consultation Fee (₹)
+                <label
+                  htmlFor="bio"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Professional Bio
                 </label>
 
-                <input
-                  type="number"
-                  name="consultation_fee"
-                  value={
-                    formData.consultation_fee
+                <textarea
+                  id="bio"
+                  name="bio"
+                  rows="6"
+                  value={form.bio}
+                  onChange={
+                    handleChange
                   }
-                  onChange={handleChange}
-                  min="0"
-                  placeholder="Example: 500"
-                  className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Tell students about your experience, expertise and how you can help them..."
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none resize-y focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
 
+                <p className="mt-2 text-xs text-slate-400">
+                  A clear and informative
+                  bio helps students
+                  understand your
+                  expertise.
+                </p>
               </div>
 
-            </div>
+              {/* Buttons */}
 
-            {/* =================================================
-                BIO
-            ================================================= */}
+              <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {saving
+                    ? "Saving Changes..."
+                    : "Save Changes"}
+                </button>
 
-            <div className="mt-5">
-
-              <label className="block font-semibold text-gray-700 mb-2">
-                Professional Bio
-              </label>
-
-              <textarea
-                name="bio"
-                value={
-                  formData.bio
-                }
-                onChange={handleChange}
-                rows="6"
-                placeholder="Tell students about your experience and expertise..."
-                className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-
-              <p className="text-xs text-gray-500 mt-2">
-                This information helps students understand your expertise.
-              </p>
-
-            </div>
-
-            {/* =================================================
-                SAVE BUTTON
-            ================================================= */}
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="w-full mt-8 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {saving
-                ? "Saving Changes..."
-                : "Save Profile Changes"}
-            </button>
-
-          </form>
-
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={
+                    loadProfile
+                  }
+                  className="inline-flex items-center justify-center px-6 py-3 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 disabled:opacity-50 transition"
+                >
+                  Reset
+                </button>
+              </div>
+            </form>
+          </section>
         </div>
-
-      </div>
-
+      </main>
     </div>
   );
 }
-
-export default CounsellorProfile;

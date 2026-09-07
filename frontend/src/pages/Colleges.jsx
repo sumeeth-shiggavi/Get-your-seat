@@ -1,259 +1,335 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
-function Colleges() {
-  const navigate = useNavigate();
+import {
+  Link,
+} from "react-router-dom";
 
-  const [colleges, setColleges] = useState([]);
-  const [filteredColleges, setFilteredColleges] = useState([]);
+const API_BASE_URL =
+  "http://localhost:5000";
 
-  const [search, setSearch] = useState("");
-  const [stateFilter, setStateFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
+export default function Colleges() {
+  const [colleges, setColleges] =
+    useState([]);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loading, setLoading] =
+    useState(true);
 
-  // Fetch colleges
+  const [error, setError] =
+    useState("");
+
+  const [search, setSearch] =
+    useState("");
+
+  const [stateFilter, setStateFilter] =
+    useState("");
+
+  const [typeFilter, setTypeFilter] =
+    useState("");
+
+  // =====================================================
+  // FETCH COLLEGES
+  // =====================================================
+
   useEffect(() => {
-    const fetchColleges = async () => {
-      try {
-        setLoading(true);
-        setError("");
+    const fetchColleges =
+      async () => {
+        try {
+          setLoading(true);
+          setError("");
 
-        const response = await fetch(
-          "http://localhost:5000/api/colleges"
-        );
+          const response =
+            await fetch(
+              `${API_BASE_URL}/api/colleges`
+            );
 
-        if (!response.ok) {
-          throw new Error("Server returned an error");
-        }
+          const result =
+            await response.json();
 
-        const data = await response.json();
+          if (!response.ok) {
+            throw new Error(
+              result.message ||
+                "Failed to fetch colleges."
+            );
+          }
 
-        if (!data.success) {
-          throw new Error(
-            data.message || "Failed to fetch colleges"
+          const data =
+            Array.isArray(result)
+              ? result
+              : result.data || [];
+
+          setColleges(data);
+        } catch (err) {
+          console.error(
+            "Fetch colleges error:",
+            err
           );
+
+          setError(
+            err.message ||
+              "Unable to load colleges."
+          );
+        } finally {
+          setLoading(false);
         }
-
-        const collegeData = data.data || [];
-
-        setColleges(collegeData);
-        setFilteredColleges(collegeData);
-      } catch (err) {
-        console.error("College fetch error:", err);
-
-        setError(
-          err.message || "Unable to connect to backend"
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
+      };
 
     fetchColleges();
   }, []);
 
-  // Apply filters
-  useEffect(() => {
-    let filtered = [...colleges];
+  // =====================================================
+  // UNIQUE FILTER OPTIONS
+  // =====================================================
 
-    // Search
-    if (search.trim()) {
-      const searchText = search.toLowerCase();
-
-      filtered = filtered.filter((college) => {
-        return [
-          college.name,
-          college.short_name,
-          college.city,
-          college.state,
-          college.college_type,
-          college.description,
-        ]
+  const states = useMemo(() => {
+    return [
+      ...new Set(
+        colleges
+          .map(
+            (college) =>
+              college.state
+          )
           .filter(Boolean)
-          .some((value) =>
-            String(value)
-              .toLowerCase()
-              .includes(searchText)
+      ),
+    ].sort();
+  }, [colleges]);
+
+  const collegeTypes = useMemo(() => {
+    return [
+      ...new Set(
+        colleges
+          .map(
+            (college) =>
+              college.college_type
+          )
+          .filter(Boolean)
+      ),
+    ].sort();
+  }, [colleges]);
+
+  // =====================================================
+  // FILTER COLLEGES
+  // =====================================================
+
+  const filteredColleges =
+    useMemo(() => {
+      const query =
+        search
+          .trim()
+          .toLowerCase();
+
+      return colleges.filter(
+        (college) => {
+          const matchesSearch =
+            !query ||
+            [
+              college.name,
+              college.short_name,
+              college.city,
+              college.state,
+              college.college_type,
+            ]
+              .filter(Boolean)
+              .some((value) =>
+                String(value)
+                  .toLowerCase()
+                  .includes(query)
+              );
+
+          const matchesState =
+            !stateFilter ||
+            college.state ===
+              stateFilter;
+
+          const matchesType =
+            !typeFilter ||
+            college.college_type ===
+              typeFilter;
+
+          return (
+            matchesSearch &&
+            matchesState &&
+            matchesType
           );
-      });
-    }
-
-    // State filter
-    if (stateFilter) {
-      filtered = filtered.filter(
-        (college) =>
-          college.state === stateFilter
+        }
       );
-    }
+    }, [
+      colleges,
+      search,
+      stateFilter,
+      typeFilter,
+    ]);
 
-    // College type filter
-    if (typeFilter) {
-      filtered = filtered.filter(
-        (college) =>
-          college.college_type === typeFilter
-      );
-    }
+  // =====================================================
+  // RESET FILTERS
+  // =====================================================
 
-    setFilteredColleges(filtered);
-  }, [
-    search,
-    stateFilter,
-    typeFilter,
-    colleges,
-  ]);
-
-  // Unique states
-  const states = [
-    ...new Set(
-      colleges
-        .map((college) => college.state)
-        .filter(Boolean)
-    ),
-  ].sort();
-
-  // Unique college types
-  const collegeTypes = [
-    ...new Set(
-      colleges
-        .map((college) => college.college_type)
-        .filter(Boolean)
-    ),
-  ].sort();
-
-  // Clear filters
-  const clearFilters = () => {
+  const resetFilters = () => {
     setSearch("");
     setStateFilter("");
     setTypeFilter("");
   };
 
-  // Open college details
-  const openCollege = (college) => {
-    navigate("/college-details", {
-      state: {
-        college,
-      },
-    });
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-50">
 
-      {/* Header */}
-      <section className="bg-black text-white">
-        <div className="max-w-7xl mx-auto px-6 py-14">
+      {/* =================================================
+          HEADER
+      ================================================= */}
 
-          <p className="text-gray-400 text-sm font-semibold tracking-widest">
-            GET YOUR SEAT
-          </p>
+      <section className="bg-white border-b border-slate-200">
 
-          <h1 className="text-4xl md:text-5xl font-bold mt-2">
-            Explore Colleges
-          </h1>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
 
-          <p className="text-gray-300 mt-4 max-w-2xl text-lg">
-            Discover colleges based on location,
-            college type and your preferences.
-          </p>
+          <div className="max-w-3xl">
+
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-semibold">
+              College Directory
+            </div>
+
+            <h1 className="mt-5 text-3xl sm:text-4xl font-bold tracking-tight text-slate-900">
+              Explore colleges that
+              could be right for you.
+            </h1>
+
+            <p className="mt-4 text-base sm:text-lg text-slate-600 leading-7">
+              Search colleges by name, location and
+              institution type. Open a college to explore
+              its courses, branches and admission information.
+            </p>
+
+          </div>
 
         </div>
+
       </section>
 
-      <main className="max-w-7xl mx-auto px-6 py-10">
+      {/* =================================================
+          SEARCH + FILTERS
+      ================================================= */}
 
-        {/* Search and Filters */}
-        <div className="bg-white rounded-3xl shadow-lg border border-gray-200 p-6">
+      <section className="border-b border-slate-200 bg-white">
 
-          <div className="grid md:grid-cols-3 gap-5">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+          <div className="grid lg:grid-cols-[1fr_220px_220px_auto] gap-3">
 
             {/* Search */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Search College
-              </label>
+
+            <div className="relative">
+
+              <svg
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                width="19"
+                height="19"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <circle
+                  cx="11"
+                  cy="11"
+                  r="8"
+                />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
 
               <input
                 type="text"
                 value={search}
-                onChange={(e) =>
-                  setSearch(e.target.value)
+                onChange={(event) =>
+                  setSearch(
+                    event.target.value
+                  )
                 }
-                placeholder="Search college or city..."
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-black focus:border-black"
+                placeholder="Search college, city or state..."
+                className="w-full h-11 pl-11 pr-4 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
               />
+
             </div>
 
             {/* State */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                State
-              </label>
 
-              <select
-                value={stateFilter}
-                onChange={(e) =>
-                  setStateFilter(e.target.value)
-                }
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-white outline-none focus:ring-2 focus:ring-black"
-              >
-                <option value="">
-                  All States
-                </option>
+            <select
+              value={stateFilter}
+              onChange={(event) =>
+                setStateFilter(
+                  event.target.value
+                )
+              }
+              className="h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+            >
+              <option value="">
+                All States
+              </option>
 
-                {states.map((state) => (
+              {states.map(
+                (state) => (
                   <option
                     key={state}
                     value={state}
                   >
                     {state}
                   </option>
-                ))}
-              </select>
-            </div>
+                )
+              )}
+            </select>
 
-            {/* College Type */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                College Type
-              </label>
+            {/* Type */}
 
-              <select
-                value={typeFilter}
-                onChange={(e) =>
-                  setTypeFilter(e.target.value)
-                }
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-white outline-none focus:ring-2 focus:ring-black"
-              >
-                <option value="">
-                  All Types
-                </option>
+            <select
+              value={typeFilter}
+              onChange={(event) =>
+                setTypeFilter(
+                  event.target.value
+                )
+              }
+              className="h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+            >
+              <option value="">
+                All Types
+              </option>
 
-                {collegeTypes.map((type) => (
+              {collegeTypes.map(
+                (type) => (
                   <option
                     key={type}
                     value={type}
                   >
                     {type}
                   </option>
-                ))}
-              </select>
-            </div>
+                )
+              )}
+            </select>
+
+            {/* Reset */}
+
+            <button
+              type="button"
+              onClick={
+                resetFilters
+              }
+              className="h-11 px-5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+            >
+              Reset
+            </button>
 
           </div>
 
-          {/* Results count */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-6">
+          <div className="mt-4 flex items-center justify-between">
 
-            <p className="text-gray-500">
+            <p className="text-sm text-slate-500">
               Showing{" "}
-              <strong className="text-gray-900">
+              <span className="font-semibold text-slate-800">
                 {filteredColleges.length}
-              </strong>{" "}
+              </span>{" "}
               college
-              {filteredColleges.length !== 1
+              {filteredColleges.length !==
+                1
                 ? "s"
                 : ""}
             </p>
@@ -262,10 +338,13 @@ function Colleges() {
               stateFilter ||
               typeFilter) && (
               <button
-                onClick={clearFilters}
-                className="px-5 py-2.5 border-2 border-black rounded-xl font-semibold hover:bg-black hover:text-white transition"
+                type="button"
+                onClick={
+                  resetFilters
+                }
+                className="text-sm font-semibold text-blue-600 hover:text-blue-700"
               >
-                Clear Filters
+                Clear filters
               </button>
             )}
 
@@ -273,62 +352,134 @@ function Colleges() {
 
         </div>
 
+      </section>
+
+      {/* =================================================
+          COLLEGE LIST
+      ================================================= */}
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
         {/* Loading */}
+
         {loading && (
-          <div className="text-center py-20">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
 
-            <div className="text-5xl mb-5">
-              🎓
-            </div>
+            {Array.from({
+              length: 6,
+            }).map(
+              (_, index) => (
+                <div
+                  key={index}
+                  className="bg-white border border-slate-200 rounded-2xl p-6 animate-pulse"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-slate-100" />
 
-            <p className="text-gray-600 text-lg">
-              Loading colleges...
-            </p>
+                  <div className="mt-5 h-5 w-3/4 rounded bg-slate-100" />
+
+                  <div className="mt-3 h-4 w-1/2 rounded bg-slate-100" />
+
+                  <div className="mt-6 h-4 w-full rounded bg-slate-100" />
+
+                  <div className="mt-2 h-4 w-5/6 rounded bg-slate-100" />
+                </div>
+              )
+            )}
 
           </div>
         )}
 
         {/* Error */}
-        {!loading && error && (
-          <div className="mt-8 bg-red-50 border border-red-200 text-red-700 p-6 rounded-2xl">
 
-            <h2 className="font-bold text-lg">
-              ⚠️ Unable to load colleges
-            </h2>
-
-            <p className="mt-2">
-              {error}
-            </p>
-
-            <p className="text-sm mt-3">
-              Make sure your backend is running
-              on port 5000.
-            </p>
-
-          </div>
-        )}
-
-        {/* No Results */}
         {!loading &&
-          !error &&
-          filteredColleges.length === 0 && (
-            <div className="text-center py-20">
+          error && (
+            <div className="max-w-xl mx-auto text-center bg-white border border-red-100 rounded-2xl p-8">
 
-              <div className="text-5xl mb-5">
-                🔍
+              <div className="mx-auto w-12 h-12 rounded-xl bg-red-50 text-red-500 flex items-center justify-center">
+
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                  />
+                  <path d="M12 8v5" />
+                  <path d="M12 16h.01" />
+                </svg>
+
               </div>
 
-              <h2 className="text-2xl font-bold">
-                No colleges found
+              <h2 className="mt-4 text-lg font-bold text-slate-900">
+                Unable to load colleges
               </h2>
 
-              <p className="text-gray-500 mt-2">
-                Try changing your search or filters.
+              <p className="mt-2 text-sm text-slate-500">
+                {error}
               </p>
 
               <button
-                onClick={clearFilters}
-                className="mt-6 bg-black text-white px-6 py-3 rounded-xl font-semibold hover:bg-gray-800"
+                type="button"
+                onClick={() =>
+                  window.location.reload()
+                }
+                className="mt-5 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition"
+              >
+                Try Again
+              </button>
+
+            </div>
+          )}
+
+        {/* Empty */}
+
+        {!loading &&
+          !error &&
+          filteredColleges.length ===
+            0 && (
+            <div className="max-w-xl mx-auto text-center py-16">
+
+              <div className="mx-auto w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center">
+
+                <svg
+                  width="28"
+                  height="28"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="7"
+                  />
+                  <path d="m20 20-4-4" />
+                </svg>
+
+              </div>
+
+              <h2 className="mt-5 text-xl font-bold text-slate-900">
+                No colleges found
+              </h2>
+
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Try changing your search or removing
+                one of the filters.
+              </p>
+
+              <button
+                type="button"
+                onClick={
+                  resetFilters
+                }
+                className="mt-5 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition"
               >
                 Clear Filters
               </button>
@@ -336,114 +487,224 @@ function Colleges() {
             </div>
           )}
 
-        {/* College Cards */}
+        {/* Colleges */}
+
         {!loading &&
           !error &&
-          filteredColleges.length > 0 && (
-            <div className="grid md:grid-cols-2 gap-6 mt-8">
+          filteredColleges.length >
+            0 && (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
 
-              {filteredColleges.map((college) => (
-                <div
-                  key={college.id}
-                  className="bg-white rounded-3xl border border-gray-200 shadow-lg hover:shadow-2xl transition overflow-hidden"
-                >
+              {filteredColleges.map(
+                (college) => (
+                  <article
+                    key={
+                      college.id
+                    }
+                    className="group bg-white border border-slate-200 rounded-2xl p-6 hover:border-blue-200 hover:shadow-xl hover:shadow-slate-900/5 transition"
+                  >
 
-                  <div className="p-6">
+                    {/* Top */}
 
-                    {/* College name */}
-                    <div className="flex gap-4">
+                    <div className="flex items-start justify-between gap-4">
 
-                      <div className="w-14 h-14 bg-gray-100 rounded-2xl flex items-center justify-center text-2xl shrink-0">
-                        🏫
+                      <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+
+                        <svg
+                          width="23"
+                          height="23"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        >
+                          <path d="M3 21h18" />
+                          <path d="M5 21V7l7-4 7 4v14" />
+                          <path d="M9 21v-5h6v5" />
+                          <path d="M9 9h.01" />
+                          <path d="M12 9h.01" />
+                          <path d="M15 9h.01" />
+                          <path d="M9 12h.01" />
+                          <path d="M12 12h.01" />
+                          <path d="M15 12h.01" />
+                        </svg>
+
                       </div>
 
-                      <div className="min-w-0">
-
-                        <h2 className="text-xl font-bold text-gray-900">
-                          {college.name}
-                        </h2>
-
-                        {college.short_name && (
-                          <p className="text-sm text-gray-500 mt-1">
-                            {college.short_name}
-                          </p>
-                        )}
-
-                      </div>
+                      {college.college_type && (
+                        <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-[11px] font-semibold whitespace-nowrap">
+                          {
+                            college.college_type
+                          }
+                        </span>
+                      )}
 
                     </div>
+
+                    {/* Name */}
+
+                    <h2 className="mt-5 text-lg font-bold leading-6 text-slate-900 group-hover:text-blue-600 transition">
+                      {college.name ||
+                        "College"}
+                    </h2>
+
+                    {college.short_name && (
+                      <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+                        {
+                          college.short_name
+                        }
+                      </p>
+                    )}
 
                     {/* Location */}
-                    <div className="mt-6">
 
-                      <p className="text-sm text-gray-500">
-                        📍 Location
-                      </p>
+                    <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
 
-                      <p className="font-semibold text-gray-900 mt-1">
-                        {college.city},{" "}
-                        {college.state}
-                      </p>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        className="shrink-0"
+                      >
+                        <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
+                        <circle
+                          cx="12"
+                          cy="10"
+                          r="2.5"
+                        />
+                      </svg>
 
-                    </div>
-
-                    {/* College Type */}
-                    <div className="mt-5">
-
-                      <p className="text-sm text-gray-500">
-                        🏛️ College Type
-                      </p>
-
-                      <span className="inline-block mt-2 bg-gray-100 text-gray-800 px-3 py-1.5 rounded-full text-sm font-semibold">
-                        {college.college_type ||
-                          "Not specified"}
+                      <span>
+                        {[
+                          college.city,
+                          college.state,
+                        ]
+                          .filter(
+                            Boolean
+                          )
+                          .join(
+                            ", "
+                          ) ||
+                          "Location unavailable"}
                       </span>
 
                     </div>
 
                     {/* Description */}
+
                     {college.description && (
-                      <p className="text-gray-600 text-sm mt-5">
-                        {college.description}
+                      <p className="mt-4 text-sm leading-6 text-slate-500 line-clamp-3">
+                        {
+                          college.description
+                        }
                       </p>
                     )}
 
-                  </div>
+                    {/* Bottom */}
 
-                  {/* Footer */}
-                  <div className="bg-gray-50 border-t border-gray-200 p-5 flex flex-col sm:flex-row gap-3">
+                    <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between gap-3">
 
-                    <button
-                      onClick={() =>
-                        openCollege(college)
-                      }
-                      className="flex-1 bg-black text-white py-3 rounded-xl font-semibold hover:bg-gray-800 transition"
-                    >
-                      View College →
-                    </button>
-
-                    {college.website && (
-                      <a
-                        href={college.website}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 text-center border-2 border-gray-300 py-3 rounded-xl font-semibold hover:border-black hover:bg-white transition"
+                      <Link
+                        to={`/colleges/${college.id}`}
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
                       >
-                        🌐 Website
-                      </a>
-                    )}
+                        View Details
 
-                  </div>
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M5 12h14" />
+                          <path d="m13 6 6 6-6 6" />
+                        </svg>
 
-                </div>
-              ))}
+                      </Link>
+
+                      {college.website && (
+                        <a
+                          href={
+                            college.website
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-medium text-slate-400 hover:text-slate-600"
+                        >
+                          Website
+                        </a>
+                      )}
+
+                    </div>
+
+                  </article>
+                )
+              )}
 
             </div>
           )}
 
       </main>
+
+      {/* =================================================
+          BOTTOM CTA
+      ================================================= */}
+
+      <section className="border-t border-slate-200 bg-white">
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+
+          <div className="rounded-2xl bg-slate-900 px-6 py-8 sm:px-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+
+            <div>
+
+              <p className="text-sm font-semibold text-blue-400">
+                Not sure where to start?
+              </p>
+
+              <h2 className="mt-2 text-2xl font-bold text-white">
+                Let your rank guide your options.
+              </h2>
+
+              <p className="mt-2 text-sm text-slate-400 max-w-xl">
+                Use the college predictor to discover
+                colleges and courses based on your
+                admission rank.
+              </p>
+
+            </div>
+
+            <Link
+              to="/predictor"
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition whitespace-nowrap"
+            >
+              Open Predictor
+
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M5 12h14" />
+                <path d="m13 6 6 6-6 6" />
+              </svg>
+
+            </Link>
+
+          </div>
+
+        </div>
+
+      </section>
+
     </div>
   );
 }
-
-export default Colleges;

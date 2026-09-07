@@ -1,8 +1,19 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+
+const API_BASE_URL = "http://localhost:5000/api";
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(
+      localStorage.getItem("user") || "null"
+    );
+  } catch {
+    return null;
+  }
+};
 
 function Counsellors() {
-  const navigate = useNavigate();
+  const [user] = useState(getStoredUser);
 
   const [counsellors, setCounsellors] =
     useState([]);
@@ -13,412 +24,356 @@ function Counsellors() {
   const [error, setError] =
     useState("");
 
-  const user = JSON.parse(
-    localStorage.getItem("user")
-  );
+  const [search, setSearch] =
+    useState("");
 
-  // ------------------------------------------
-  // Fetch counsellors
-  // ------------------------------------------
-
-  const fetchCounsellors = async () => {
-    try {
-      setLoading(true);
-      setError("");
-
-      const response = await fetch(
-        "http://localhost:5000/api/counsellors"
-      );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.message ||
-            "Failed to fetch counsellors."
-        );
-      }
-
-      setCounsellors(
-        data.data || []
-      );
-    } catch (error) {
-      console.error(
-        "Fetch counsellors error:",
-        error
-      );
-
-      setError(
-        error.message ||
-          "Unable to load counsellors."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  // =====================================================
+  // FETCH COUNSELLORS
+  // =====================================================
 
   useEffect(() => {
+    const fetchCounsellors =
+      async () => {
+        try {
+          setLoading(true);
+          setError("");
+
+          const response =
+            await fetch(
+              `${API_BASE_URL}/counsellors`
+            );
+
+          const result =
+            await response.json();
+
+          if (!response.ok) {
+            throw new Error(
+              result.message ||
+                "Failed to fetch counsellors."
+            );
+          }
+
+          setCounsellors(
+            result.data || []
+          );
+        } catch (err) {
+          setError(
+            err.message ||
+              "Failed to fetch counsellors."
+          );
+        } finally {
+          setLoading(false);
+        }
+      };
+
     fetchCounsellors();
   }, []);
 
-  // ------------------------------------------
-  // Book appointment
-  // ------------------------------------------
+  // =====================================================
+  // SEARCH
+  // =====================================================
 
-  const handleBookAppointment = (
-    counsellorId
-  ) => {
-    if (!user) {
-      alert(
-        "Please login to book a counselling appointment."
-      );
+  const filteredCounsellors =
+    counsellors.filter(
+      (counsellor) => {
+        const searchText =
+          search
+            .toLowerCase()
+            .trim();
 
-      navigate("/login");
+        if (!searchText) {
+          return true;
+        }
 
-      return;
-    }
-
-    if (user.role === "counsellor") {
-      alert(
-        "Counsellors cannot book counselling appointments."
-      );
-
-      return;
-    }
-
-    navigate(
-      `/counsellor-booking?counsellor_id=${counsellorId}`
+        return (
+          String(
+            counsellor.full_name || ""
+          )
+            .toLowerCase()
+            .includes(searchText) ||
+          String(
+            counsellor.specialization ||
+              ""
+          )
+            .toLowerCase()
+            .includes(searchText) ||
+          String(
+            counsellor.qualification ||
+              ""
+          )
+            .toLowerCase()
+            .includes(searchText)
+        );
+      }
     );
-  };
 
-  // ------------------------------------------
-  // Loading
-  // ------------------------------------------
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-
-        <div className="text-center">
-
-          <div className="text-5xl mb-4">
-            👨‍🏫
-          </div>
-
-          <p className="text-lg text-gray-600">
-            Loading counsellors...
-          </p>
-
-        </div>
-
-      </div>
-    );
-  }
-
-  // ------------------------------------------
-  // Page
-  // ------------------------------------------
+  // =====================================================
+  // PAGE
+  // =====================================================
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10">
+    <div className="min-h-screen bg-slate-50">
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {/* HERO */}
+        <section className="mb-8 overflow-hidden rounded-3xl bg-gradient-to-r from-blue-700 to-blue-600 px-6 py-10 text-white shadow-lg sm:px-10">
+          <div className="max-w-3xl">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 text-sm font-medium backdrop-blur">
+              <span>🎓</span>
+              Expert Admission Guidance
+            </div>
 
-      <div className="max-w-7xl mx-auto px-6">
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              Find Your Counsellor
+            </h1>
 
-        {/* Header */}
-
-        <div className="text-center mb-10">
-
-          <h1 className="text-4xl font-bold text-gray-800">
-            🎓 Career Counsellors
-          </h1>
-
-          <p className="text-gray-600 mt-3 max-w-2xl mx-auto">
-            Connect with experienced counsellors
-            and get personalized guidance for your
-            college admissions.
-          </p>
-
-        </div>
-
-        {/* Error */}
-
-        {error && (
-          <div className="bg-red-100 border border-red-200 text-red-700 rounded-xl p-4 mb-8">
-
-            <p className="font-semibold">
-              {error}
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-blue-100 sm:text-base">
+              Connect with verified admission
+              counsellors and get personalised
+              guidance for your college and
+              course decisions.
             </p>
+          </div>
+        </section>
 
+        {/* SEARCH */}
+        <section className="mb-8 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                Available Counsellors
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Search by name,
+                specialisation or
+                qualification.
+              </p>
+            </div>
+
+            <div className="relative w-full sm:max-w-sm">
+              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                🔍
+              </span>
+
+              <input
+                type="text"
+                value={search}
+                onChange={(event) =>
+                  setSearch(
+                    event.target.value
+                  )
+                }
+                placeholder="Search counsellors..."
+                className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* ERROR */}
+        {error && (
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">
+            <div className="flex items-start gap-3">
+              <span>⚠️</span>
+              <span>{error}</span>
+            </div>
           </div>
         )}
 
-        {/* No Counsellors */}
-
-        {!error &&
-          counsellors.length === 0 && (
-            <div className="bg-white rounded-2xl shadow-md p-12 text-center">
-
-              <div className="text-5xl mb-4">
-                📭
-              </div>
-
-              <h2 className="text-2xl font-bold text-gray-700">
-                No Counsellors Available
-              </h2>
-
-              <p className="text-gray-500 mt-2">
-                Counsellors will appear here once
-                they are available.
-              </p>
-
-            </div>
-          )}
-
-        {/* Counsellor Cards */}
-
-        {counsellors.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-
-            {counsellors.map(
-              (counsellor) => (
+        {/* LOADING */}
+        {loading ? (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map(
+              (item) => (
                 <div
-                  key={counsellor.id}
-                  className="bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden hover:shadow-xl transition"
+                  key={item}
+                  className="animate-pulse rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
                 >
+                  <div className="h-16 w-16 rounded-2xl bg-slate-200" />
 
-                  {/* Top Section */}
+                  <div className="mt-5 h-5 w-40 rounded bg-slate-200" />
 
-                  <div className="bg-blue-50 p-6">
+                  <div className="mt-3 h-4 w-28 rounded bg-slate-200" />
 
-                    <div className="flex items-center gap-4">
+                  <div className="mt-6 h-16 rounded-2xl bg-slate-100" />
 
-                      <div className="w-16 h-16 rounded-full bg-blue-600 text-white flex items-center justify-center text-2xl font-bold">
-                        {counsellor.full_name
-                          ? counsellor.full_name
-                              .charAt(0)
-                              .toUpperCase()
-                          : "C"}
-                      </div>
-
-                      <div className="flex-1">
-
-                        <h2 className="text-xl font-bold text-gray-800">
-                          {counsellor.full_name}
-                        </h2>
-
-                        {counsellor.is_verified && (
-                          <span className="inline-flex items-center gap-1 mt-1 text-sm font-semibold text-green-600">
-                            ✓ Verified Counsellor
-                          </span>
-                        )}
-
-                      </div>
-
-                    </div>
-
-                  </div>
-
-                  {/* Details */}
-
-                  <div className="p-6">
-
-                    <div className="space-y-4">
-
-                      {/* Specialization */}
-
-                      <div>
-
-                        <p className="text-sm text-gray-500">
-                          Specialization
-                        </p>
-
-                        <p className="font-semibold text-blue-700 mt-1">
-                          🎯{" "}
-                          {counsellor.specialization ||
-                            "Admissions Counselling"}
-                        </p>
-
-                      </div>
-
-                      {/* Qualification */}
-
-                      <div>
-
-                        <p className="text-sm text-gray-500">
-                          Qualification
-                        </p>
-
-                        <p className="font-semibold text-gray-800 mt-1">
-                          📚{" "}
-                          {counsellor.qualification ||
-                            "Qualified Counsellor"}
-                        </p>
-
-                      </div>
-
-                      {/* Experience */}
-
-                      <div>
-
-                        <p className="text-sm text-gray-500">
-                          Experience
-                        </p>
-
-                        <p className="font-semibold text-gray-800 mt-1">
-                          💼{" "}
-                          {counsellor.experience_years ||
-                            0}{" "}
-                          years
-                        </p>
-
-                      </div>
-
-                      {/* Consultation Fee */}
-
-                      <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4">
-
-                        <div>
-
-                          <p className="text-sm text-gray-500">
-                            Consultation Fee
-                          </p>
-
-                          <p className="text-xl font-bold text-blue-700 mt-1">
-                            ₹
-                            {counsellor.consultation_fee ||
-                              0}
-                          </p>
-
-                        </div>
-
-                        <div className="text-3xl">
-                          💬
-                        </div>
-
-                      </div>
-
-                    </div>
-
-                    {/* Bio */}
-
-                    {counsellor.bio && (
-                      <div className="mt-5">
-
-                        <p className="text-sm text-gray-500">
-                          About
-                        </p>
-
-                        <p className="text-gray-600 mt-1 line-clamp-3">
-                          {counsellor.bio}
-                        </p>
-
-                      </div>
-                    )}
-
-                    {/* Book Button */}
-
-                    <button
-                      onClick={() =>
-                        handleBookAppointment(
-                          counsellor.id
-                        )
-                      }
-                      className="w-full mt-6 px-5 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition"
-                    >
-                      📅 Book Appointment
-                    </button>
-
-                  </div>
-
+                  <div className="mt-5 h-11 rounded-xl bg-slate-200" />
                 </div>
               )
             )}
+          </div>
+        ) : filteredCounsellors.length ===
+          0 ? (
+          <div className="rounded-3xl border border-slate-200 bg-white px-6 py-14 text-center shadow-sm">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-3xl">
+              🔎
+            </div>
 
+            <h2 className="text-xl font-bold text-slate-900">
+              No counsellors found
+            </h2>
+
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+              Try a different name,
+              specialisation or
+              qualification.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {filteredCounsellors.map(
+              (counsellor) => {
+                const counsellorId =
+                  counsellor.id;
+
+                const initials =
+                  String(
+                    counsellor.full_name ||
+                      "C"
+                  )
+                    .split(" ")
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map(
+                      (name) =>
+                        name.charAt(0)
+                    )
+                    .join("")
+                    .toUpperCase();
+
+                return (
+                  <article
+                    key={counsellorId}
+                    className="group overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl"
+                  >
+                    {/* CARD HEADER */}
+                    <div className="bg-gradient-to-br from-blue-50 to-slate-50 p-6">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-xl font-bold text-white shadow-sm">
+                          {initials}
+                        </div>
+
+                        {counsellor.is_verified && (
+                          <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+                            ✓ Verified
+                          </span>
+                        )}
+                      </div>
+
+                      <h2 className="mt-5 text-xl font-bold text-slate-900">
+                        {counsellor.full_name ||
+                          "Counsellor"}
+                      </h2>
+
+                      <p className="mt-1 text-sm font-medium text-blue-600">
+                        {counsellor.specialization ||
+                          "Admission Counselling"}
+                      </p>
+                    </div>
+
+                    {/* CARD BODY */}
+                    <div className="p-6">
+                      <div className="grid gap-3">
+                        <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3">
+                          <span className="text-lg">
+                            🎓
+                          </span>
+
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                              Qualification
+                            </p>
+
+                            <p className="mt-1 text-sm font-semibold text-slate-800">
+                              {counsellor.qualification ||
+                                "Not specified"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3">
+                          <span className="text-lg">
+                            ⭐
+                          </span>
+
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                              Experience
+                            </p>
+
+                            <p className="mt-1 text-sm font-semibold text-slate-800">
+                              {counsellor.experience_years ??
+                                0}{" "}
+                              {Number(
+                                counsellor.experience_years
+                              ) === 1
+                                ? "year"
+                                : "years"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3">
+                          <span className="text-lg">
+                            💰
+                          </span>
+
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                              Consultation Fee
+                            </p>
+
+                            <p className="mt-1 text-sm font-semibold text-slate-800">
+                              {counsellor.consultation_fee !==
+                              null &&
+                              counsellor.consultation_fee !==
+                                undefined
+                                ? `₹${Number(
+                                    counsellor.consultation_fee
+                                  ).toLocaleString(
+                                    "en-IN"
+                                  )}`
+                                : "Contact for details"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* BIO */}
+                      {counsellor.bio && (
+                        <p className="mt-5 line-clamp-3 text-sm leading-6 text-slate-500">
+                          {counsellor.bio}
+                        </p>
+                      )}
+
+                      {/* BOOK BUTTON */}
+                      {user?.role ===
+                      "student" ? (
+                        <a
+                          href={`/counsellors/${counsellorId}/book`}
+                          className="mt-6 flex w-full items-center justify-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
+                        >
+                          Book Counselling
+                          <span className="ml-2">
+                            →
+                          </span>
+                        </a>
+                      ) : (
+                        <a
+                          href="/login"
+                          className="mt-6 flex w-full items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-bold text-blue-700 transition hover:bg-blue-100"
+                        >
+                          Login to Book
+                        </a>
+                      )}
+                    </div>
+                  </article>
+                );
+              }
+            )}
           </div>
         )}
-
-        {/* Information */}
-
-        <div className="mt-10 bg-white rounded-2xl shadow-md p-6">
-
-          <div className="flex flex-col md:flex-row items-start gap-4">
-
-            <div className="text-4xl">
-              💡
-            </div>
-
-            <div>
-
-              <h3 className="text-xl font-bold text-gray-800">
-                How Counselling Works
-              </h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-5">
-
-                <div>
-
-                  <div className="text-2xl">
-                    1️⃣
-                  </div>
-
-                  <h4 className="font-bold text-gray-700 mt-2">
-                    Choose a Counsellor
-                  </h4>
-
-                  <p className="text-sm text-gray-500 mt-1">
-                    Select a counsellor based on
-                    their specialization and
-                    experience.
-                  </p>
-
-                </div>
-
-                <div>
-
-                  <div className="text-2xl">
-                    2️⃣
-                  </div>
-
-                  <h4 className="font-bold text-gray-700 mt-2">
-                    Select a Slot
-                  </h4>
-
-                  <p className="text-sm text-gray-500 mt-1">
-                    Choose a convenient date and
-                    available 30-minute time slot.
-                  </p>
-
-                </div>
-
-                <div>
-
-                  <div className="text-2xl">
-                    3️⃣
-                  </div>
-
-                  <h4 className="font-bold text-gray-700 mt-2">
-                    Get Guidance
-                  </h4>
-
-                  <p className="text-sm text-gray-500 mt-1">
-                    Attend your counselling session
-                    and get personalized admission
-                    guidance.
-                  </p>
-
-                </div>
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-
+      </main>
     </div>
   );
 }

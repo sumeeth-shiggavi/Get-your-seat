@@ -1,391 +1,1020 @@
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import React, {
+  useEffect,
+  useState,
+} from "react";
 
-function Predictor() {
-  const { exam } = useParams();
-  const navigate = useNavigate();
+import {
+  Link,
+} from "react-router-dom";
 
-  const examNames = {
-    neet: "NEET",
-    kcet: "KCET",
-    "jee-main": "JEE Main",
-    "jee-advanced": "JEE Advanced",
-  };
+const API_BASE_URL =
+  "http://localhost:5000";
 
-  const examName = examNames[exam] || exam.toUpperCase();
+export default function Predictor() {
+  const [exams, setExams] =
+    useState([]);
 
-  const [rank, setRank] = useState("");
-  const [category, setCategory] = useState("");
-  const [state, setState] = useState("");
+  const [loadingExams, setLoadingExams] =
+    useState(true);
 
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [form, setForm] =
+    useState({
+      exam_id: "",
+      rank: "",
+      category: "General",
+      quota: "All India",
+    });
 
-  const getChanceLevel = (studentRank, closingRank) => {
-    const rankNumber = Number(studentRank);
-    const closingNumber = Number(closingRank);
+  const [results, setResults] =
+    useState([]);
 
-    if (!closingNumber) {
-      return "Moderate";
-    }
+  const [loading, setLoading] =
+    useState(false);
 
-    if (rankNumber <= closingNumber * 0.6) {
-      return "Safe";
-    }
+  const [error, setError] =
+    useState("");
 
-    if (rankNumber <= closingNumber) {
-      return "Moderate";
-    }
+  const [searched, setSearched] =
+    useState(false);
 
-    return "Dream";
-  };
+  // =====================================================
+  // FETCH EXAMS
+  // =====================================================
 
-  const handlePredict = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    const fetchExams =
+      async () => {
+        try {
+          setLoadingExams(true);
 
-    if (!rank || !category || !state) {
-      setError("Please fill all fields.");
-      return;
-    }
+          const response =
+            await fetch(
+              `${API_BASE_URL}/api/exams`
+            );
 
-    setLoading(true);
-    setError("");
-    setResults([]);
+          const result =
+            await response.json();
 
-    try {
-      const response = await fetch(
-        "http://localhost:5000/api/predict",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            exam: examName,
-            rank: Number(rank),
-            category,
-            state,
-          }),
+          if (!response.ok) {
+            throw new Error(
+              result.message ||
+                "Failed to fetch exams."
+            );
+          }
+
+          const data =
+            Array.isArray(result)
+              ? result
+              : result.data || [];
+
+          setExams(data);
+        } catch (err) {
+          console.error(
+            "Fetch exams error:",
+            err
+          );
+
+          setError(
+            err.message ||
+              "Unable to load exams."
+          );
+        } finally {
+          setLoadingExams(false);
         }
-      );
+      };
 
-      const data = await response.json();
+    fetchExams();
+  }, []);
 
-      if (!data.success) {
-        throw new Error(
-          data.message || "Prediction failed"
+  // =====================================================
+  // HANDLE INPUT
+  // =====================================================
+
+  const handleChange = (
+    event
+  ) => {
+    const {
+      name,
+      value,
+    } = event.target;
+
+    setForm(
+      (previous) => ({
+        ...previous,
+        [name]: value,
+      })
+    );
+
+    if (error) {
+      setError("");
+    }
+  };
+
+  // =====================================================
+  // SUBMIT PREDICTION
+  // =====================================================
+
+  const handleSubmit =
+    async (event) => {
+      event.preventDefault();
+
+      setError("");
+      setSearched(true);
+
+      const rankNumber =
+        Number(form.rank);
+
+      if (
+        !form.exam_id
+      ) {
+        setError(
+          "Please select an examination."
         );
+
+        return;
       }
 
-      const updatedResults = data.data.map((college) => ({
-        ...college,
-        chance: getChanceLevel(
-          rank,
-          college.closing_rank
-        ),
-      }));
+      if (
+        !form.rank ||
+        !Number.isInteger(
+          rankNumber
+        ) ||
+        rankNumber <= 0
+      ) {
+        setError(
+          "Please enter a valid positive rank."
+        );
 
-      setResults(updatedResults);
+        return;
+      }
 
-    } catch (err) {
-      console.error(err);
+      try {
+        setLoading(true);
 
-      setError(
-        err.message || "Unable to connect to server"
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/predict`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                exam_id:
+                  Number(
+                    form.exam_id
+                  ),
+                rank:
+                  rankNumber,
+                category:
+                  form.category,
+                quota:
+                  form.quota,
+              }),
+            }
+          );
 
-  const getChanceStyle = (chance) => {
-    if (chance === "Safe") {
-      return "bg-green-100 text-green-700 border-green-300";
-    }
+        const result =
+          await response.json();
 
-    if (chance === "Moderate") {
-      return "bg-yellow-100 text-yellow-700 border-yellow-300";
-    }
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+              "Prediction failed."
+          );
+        }
 
-    return "bg-red-100 text-red-700 border-red-300";
+        const data =
+          Array.isArray(result)
+            ? result
+            : result.data ||
+              result.results ||
+              [];
+
+        setResults(data);
+      } catch (err) {
+        console.error(
+          "Prediction error:",
+          err
+        );
+
+        setResults([]);
+
+        setError(
+          err.message ||
+            "Unable to generate predictions."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+  // =====================================================
+  // RESET
+  // =====================================================
+
+  const handleReset = () => {
+    setForm({
+      exam_id: "",
+      rank: "",
+      category: "General",
+      quota: "All India",
+    });
+
+    setResults([]);
+    setError("");
+    setSearched(false);
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8">
+    <div className="min-h-screen bg-slate-50">
 
-      <div className="max-w-5xl mx-auto">
+      {/* =================================================
+          PAGE HEADER
+      ================================================= */}
 
-        {/* Header */}
-        <div className="text-center mb-10">
+      <section className="bg-white border-b border-slate-200">
 
-          <h1 className="text-4xl font-bold text-gray-900">
-            {examName} College Predictor
-          </h1>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
 
-          <p className="text-gray-600 mt-3">
-            Enter your rank and preferences to discover
-            colleges you may be eligible for.
-          </p>
+          <div className="max-w-3xl">
+
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-semibold">
+              College Predictor
+            </div>
+
+            <h1 className="mt-5 text-3xl sm:text-4xl font-bold tracking-tight text-slate-900">
+              Find colleges based on
+              your rank.
+            </h1>
+
+            <p className="mt-4 text-base sm:text-lg text-slate-600 leading-7">
+              Enter your examination details and rank to
+              discover colleges and courses that may match
+              your admission chances.
+            </p>
+
+          </div>
 
         </div>
 
-        {/* Predictor Form */}
-        <form
-          onSubmit={handlePredict}
-          className="bg-white rounded-2xl shadow-md p-8"
-        >
+      </section>
 
-          {/* Rank */}
-          <label className="block mb-2 font-semibold">
-            Your Rank
-          </label>
+      {/* =================================================
+          MAIN
+      ================================================= */}
 
-          <input
-            type="number"
-            min="1"
-            value={rank}
-            onChange={(e) => setRank(e.target.value)}
-            placeholder="Enter your rank"
-            className="w-full border border-gray-300 rounded-lg p-3 mb-6 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
 
-          {/* Category */}
-          <label className="block mb-2 font-semibold">
-            Category
-          </label>
+        <div className="grid lg:grid-cols-[380px_1fr] gap-8 items-start">
 
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg p-3 mb-6 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">
-              Select Category
-            </option>
+          {/* =================================================
+              FORM
+          ================================================= */}
 
-            <option value="General">
-              General
-            </option>
+          <section className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-7 lg:sticky lg:top-24">
 
-            <option value="OBC">
-              OBC
-            </option>
+            <div>
 
-            <option value="SC">
-              SC
-            </option>
+              <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
 
-            <option value="ST">
-              ST
-            </option>
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M3 3v18h18" />
+                  <path d="m7 16 4-5 3 3 5-7" />
+                </svg>
 
-            <option value="EWS">
-              EWS
-            </option>
-          </select>
-
-          {/* State */}
-          <label className="block mb-2 font-semibold">
-            Preferred State
-          </label>
-
-          <select
-            value={state}
-            onChange={(e) => setState(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg p-3 mb-6 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">
-              Select State
-            </option>
-
-            <option value="Karnataka">
-              Karnataka
-            </option>
-
-            <option value="Maharashtra">
-              Maharashtra
-            </option>
-
-            <option value="Delhi">
-              Delhi
-            </option>
-
-            <option value="Tamil Nadu">
-              Tamil Nadu
-            </option>
-          </select>
-
-          {/* Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
-          >
-            {loading
-              ? "Finding Colleges..."
-              : "Predict My Colleges"}
-          </button>
-
-        </form>
-
-        {/* Error */}
-        {error && (
-          <div className="mt-6 bg-red-100 border border-red-300 text-red-700 p-4 rounded-lg">
-            {error}
-          </div>
-        )}
-
-        {/* Results */}
-        {results.length > 0 && (
-          <div className="mt-10">
-
-            <div className="flex items-center justify-between mb-6">
-
-              <div>
-                <h2 className="text-2xl font-bold">
-                  Recommended Colleges
-                </h2>
-
-                <p className="text-gray-500 mt-1">
-                  Based on your rank and preferences
-                </p>
               </div>
 
-              <span className="bg-blue-100 text-blue-700 px-4 py-2 rounded-full font-semibold">
-                {results.length} Colleges
-              </span>
+              <h2 className="mt-5 text-xl font-bold text-slate-900">
+                Enter your details
+              </h2>
+
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                We will compare your rank with available
+                cutoff information.
+              </p>
 
             </div>
 
-            <div className="grid gap-6">
+            <form
+              onSubmit={
+                handleSubmit
+              }
+              className="mt-7 space-y-5"
+            >
 
-              {results.map((college, index) => (
+              {/* Exam */}
 
-                <div
-                  key={index}
-                  className="bg-white rounded-2xl shadow-md p-6 hover:shadow-lg transition"
+              <div>
+
+                <label
+                  htmlFor="exam_id"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Examination
+                </label>
+
+                <select
+                  id="exam_id"
+                  name="exam_id"
+                  value={
+                    form.exam_id
+                  }
+                  onChange={
+                    handleChange
+                  }
+                  disabled={
+                    loadingExams
+                  }
+                  className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50"
                 >
 
-                  {/* Top Section */}
-                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                  <option value="">
+                    {loadingExams
+                      ? "Loading exams..."
+                      : "Select examination"}
+                  </option>
+
+                  {exams.map(
+                    (exam) => (
+                      <option
+                        key={
+                          exam.id
+                        }
+                        value={
+                          exam.id
+                        }
+                      >
+                        {exam.name ||
+                          exam.code}
+                      </option>
+                    )
+                  )}
+
+                </select>
+
+              </div>
+
+              {/* Rank */}
+
+              <div>
+
+                <label
+                  htmlFor="rank"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Your Rank
+                </label>
+
+                <input
+                  id="rank"
+                  name="rank"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={
+                    form.rank
+                  }
+                  onChange={
+                    handleChange
+                  }
+                  placeholder="Example: 1245"
+                  className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+
+              </div>
+
+              {/* Category */}
+
+              <div>
+
+                <label
+                  htmlFor="category"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Category
+                </label>
+
+                <select
+                  id="category"
+                  name="category"
+                  value={
+                    form.category
+                  }
+                  onChange={
+                    handleChange
+                  }
+                  className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                >
+
+                  <option value="General">
+                    General
+                  </option>
+
+                  <option value="OBC">
+                    OBC
+                  </option>
+
+                  <option value="SC">
+                    SC
+                  </option>
+
+                  <option value="ST">
+                    ST
+                  </option>
+
+                  <option value="EWS">
+                    EWS
+                  </option>
+
+                </select>
+
+              </div>
+
+              {/* Quota */}
+
+              <div>
+
+                <label
+                  htmlFor="quota"
+                  className="block text-sm font-semibold text-slate-700 mb-2"
+                >
+                  Quota
+                </label>
+
+                <select
+                  id="quota"
+                  name="quota"
+                  value={
+                    form.quota
+                  }
+                  onChange={
+                    handleChange
+                  }
+                  className="w-full h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                >
+
+                  <option value="All India">
+                    All India
+                  </option>
+
+                  <option value="State">
+                    State
+                  </option>
+
+                  <option value="Home State">
+                    Home State
+                  </option>
+
+                  <option value="Other State">
+                    Other State
+                  </option>
+
+                </select>
+
+              </div>
+
+              {/* Error */}
+
+              {error && (
+                <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+                  {error}
+                </div>
+              )}
+
+              {/* Buttons */}
+
+              <div className="flex gap-3 pt-1">
+
+                <button
+                  type="submit"
+                  disabled={
+                    loading ||
+                    loadingExams
+                  }
+                  className="flex-1 h-11 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {loading
+                    ? "Checking..."
+                    : "Find Colleges"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    handleReset
+                  }
+                  className="px-4 h-11 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+                >
+                  Reset
+                </button>
+
+              </div>
+
+            </form>
+
+            {/* Disclaimer */}
+
+            <div className="mt-6 pt-5 border-t border-slate-100">
+
+              <p className="text-xs leading-5 text-slate-400">
+                Predictions are based on available cutoff
+                information and should be used as a
+                guidance tool, not as a guarantee of admission.
+              </p>
+
+            </div>
+
+          </section>
+
+          {/* =================================================
+              RESULTS
+          ================================================= */}
+
+          <section>
+
+            {!searched && (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 sm:p-12 text-center">
+
+                <div className="mx-auto w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+
+                  <svg
+                    width="30"
+                    height="30"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                  >
+                    <path d="M3 3v18h18" />
+                    <path d="m7 16 4-5 3 3 5-7" />
+                  </svg>
+
+                </div>
+
+                <h2 className="mt-6 text-xl font-bold text-slate-900">
+                  Your predicted colleges will appear here
+                </h2>
+
+                <p className="mt-3 max-w-lg mx-auto text-sm leading-6 text-slate-500">
+                  Enter your exam and rank on the left to
+                  see colleges that match your admission
+                  profile.
+                </p>
+
+              </div>
+            )}
+
+            {searched &&
+              loading && (
+                <div className="space-y-4">
+
+                  {Array.from({
+                    length: 4,
+                  }).map(
+                    (_, index) => (
+                      <div
+                        key={index}
+                        className="bg-white border border-slate-200 rounded-2xl p-6 animate-pulse"
+                      >
+
+                        <div className="flex gap-4">
+
+                          <div className="w-12 h-12 rounded-xl bg-slate-100" />
+
+                          <div className="flex-1">
+
+                            <div className="h-5 w-2/3 bg-slate-100 rounded" />
+
+                            <div className="mt-3 h-4 w-1/3 bg-slate-100 rounded" />
+
+                            <div className="mt-5 h-4 w-full bg-slate-100 rounded" />
+
+                          </div>
+
+                        </div>
+
+                      </div>
+                    )
+                  )}
+
+                </div>
+              )}
+
+            {searched &&
+              !loading &&
+              !error &&
+              results.length ===
+                0 && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-8 sm:p-12 text-center">
+
+                  <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center">
+
+                    <svg
+                      width="28"
+                      height="28"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                    >
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="9"
+                      />
+                      <path d="M8 12h8" />
+                    </svg>
+
+                  </div>
+
+                  <h2 className="mt-5 text-xl font-bold text-slate-900">
+                    No matching colleges found
+                  </h2>
+
+                  <p className="mt-2 max-w-lg mx-auto text-sm leading-6 text-slate-500">
+                    We couldn't find colleges matching the
+                    information provided. Try another rank,
+                    category or quota.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={
+                      handleReset
+                    }
+                    className="mt-5 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition"
+                  >
+                    Try Again
+                  </button>
+
+                </div>
+              )}
+
+            {searched &&
+              !loading &&
+              !error &&
+              results.length >
+                0 && (
+                <div>
+
+                  {/* Results header */}
+
+                  <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5">
 
                     <div>
 
-                      <h3 className="text-xl font-bold text-gray-900">
-                        {college.college_name}
-                      </h3>
-
-                      <p className="text-gray-500 mt-2">
-                        📍 {college.city}, {college.state}
+                      <p className="text-sm font-semibold text-blue-600">
+                        Prediction Results
                       </p>
+
+                      <h2 className="mt-1 text-2xl font-bold text-slate-900">
+                        Colleges you may consider
+                      </h2>
 
                     </div>
 
-                    {/* Chance */}
-                    <span
-                      className={`inline-block border px-4 py-2 rounded-full font-bold ${getChanceStyle(
-                        college.chance
-                      )}`}
-                    >
-                      {college.chance}
+                    <span className="self-start sm:self-auto px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">
+                      {results.length}{" "}
+                      {results.length ===
+                      1
+                        ? "match"
+                        : "matches"}
                     </span>
 
                   </div>
 
-                  {/* Details */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                  {/* Result cards */}
 
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-gray-500 text-sm">
-                        Course
-                      </p>
+                  <div className="space-y-4">
 
-                      <p className="font-semibold mt-1">
-                        {college.course_name}
-                      </p>
-                    </div>
+                    {results.map(
+                      (
+                        college,
+                        index
+                      ) => {
 
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-gray-500 text-sm">
-                        Branch
-                      </p>
+                        const collegeId =
+                          college.college_id ??
+                          college.id;
 
-                      <p className="font-semibold mt-1">
-                        {college.branch_name}
-                      </p>
-                    </div>
+                        const collegeName =
+                          college.college_name ||
+                          college.name ||
+                          "College";
 
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-gray-500 text-sm">
-                        Opening Rank
-                      </p>
+                        const courseName =
+                          college.course_name ||
+                          college.course ||
+                          "Course information unavailable";
 
-                      <p className="font-semibold mt-1">
-                        {college.opening_rank}
-                      </p>
-                    </div>
+                        const branchName =
+                          college.branch_name ||
+                          college.branch ||
+                          "";
 
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-gray-500 text-sm">
-                        Closing Rank
-                      </p>
+                        const openingRank =
+                          college.opening_rank;
 
-                      <p className="font-semibold mt-1">
-                        {college.closing_rank}
-                      </p>
-                    </div>
+                        const closingRank =
+                          college.closing_rank;
 
-                  </div>
+                        const rank =
+                          Number(
+                            form.rank
+                          );
 
-                  {/* Button */}
-                  <div className="mt-6">
+                        let chance =
+                          "Possible";
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate("/college-details", {
-                          state: {
-                            college: {
-                              id: college.college_id,
-                              name: college.college_name,
-                              city: college.city,
-                              state: college.state,
-                            },
-                          },
-                        })
+                        let chanceClass =
+                          "bg-amber-50 text-amber-700";
+
+                        if (
+                          closingRank &&
+                          rank <=
+                            Number(
+                              closingRank
+                            ) * 0.7
+                        ) {
+                          chance =
+                            "Good Chance";
+
+                          chanceClass =
+                            "bg-green-50 text-green-700";
+                        } else if (
+                          closingRank &&
+                          rank <=
+                            Number(
+                              closingRank
+                            )
+                        ) {
+                          chance =
+                            "Possible";
+
+                          chanceClass =
+                            "bg-amber-50 text-amber-700";
+                        } else {
+                          chance =
+                            "Reach";
+
+                          chanceClass =
+                            "bg-red-50 text-red-700";
+                        }
+
+                        return (
+                          <article
+                            key={
+                              college.id ||
+                              `${collegeId}-${index}`
+                            }
+                            className="bg-white border border-slate-200 rounded-2xl p-6 hover:border-blue-200 hover:shadow-lg hover:shadow-slate-900/5 transition"
+                          >
+
+                            <div className="flex flex-col md:flex-row md:items-start justify-between gap-5">
+
+                              <div className="flex items-start gap-4">
+
+                                <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shrink-0">
+                                  {String(
+                                    index +
+                                      1
+                                  ).padStart(
+                                    2,
+                                    "0"
+                                  )}
+                                </div>
+
+                                <div>
+
+                                  <h3 className="text-lg font-bold text-slate-900">
+                                    {
+                                      collegeName
+                                    }
+                                  </h3>
+
+                                  <p className="mt-1 text-sm text-slate-500">
+                                    {[
+                                      college.city,
+                                      college.state,
+                                    ]
+                                      .filter(
+                                        Boolean
+                                      )
+                                      .join(
+                                        ", "
+                                      )}
+                                  </p>
+
+                                </div>
+
+                              </div>
+
+                              <span
+                                className={`self-start px-3 py-1.5 rounded-full text-xs font-bold ${chanceClass}`}
+                              >
+                                {chance}
+                              </span>
+
+                            </div>
+
+                            <div className="mt-6 grid sm:grid-cols-2 gap-4">
+
+                              <div className="rounded-xl bg-slate-50 p-4">
+
+                                <p className="text-xs text-slate-400">
+                                  Course
+                                </p>
+
+                                <p className="mt-1 text-sm font-semibold text-slate-800">
+                                  {
+                                    courseName
+                                  }
+                                </p>
+
+                              </div>
+
+                              <div className="rounded-xl bg-slate-50 p-4">
+
+                                <p className="text-xs text-slate-400">
+                                  Branch
+                                </p>
+
+                                <p className="mt-1 text-sm font-semibold text-slate-800">
+                                  {branchName ||
+                                    "Not specified"}
+                                </p>
+
+                              </div>
+
+                            </div>
+
+                            {(openingRank ||
+                              closingRank) && (
+                              <div className="mt-4 flex flex-wrap gap-3">
+
+                                {openingRank && (
+                                  <div className="px-3 py-2 rounded-lg border border-slate-200 text-xs">
+                                    <span className="text-slate-400">
+                                      Opening:
+                                    </span>{" "}
+                                    <span className="font-semibold text-slate-700">
+                                      {
+                                        openingRank
+                                      }
+                                    </span>
+                                  </div>
+                                )}
+
+                                {closingRank && (
+                                  <div className="px-3 py-2 rounded-lg border border-slate-200 text-xs">
+                                    <span className="text-slate-400">
+                                      Closing:
+                                    </span>{" "}
+                                    <span className="font-semibold text-slate-700">
+                                      {
+                                        closingRank
+                                      }
+                                    </span>
+                                  </div>
+                                )}
+
+                              </div>
+                            )}
+
+                            {collegeId && (
+                              <div className="mt-5 pt-5 border-t border-slate-100">
+
+                                <Link
+                                  to={`/colleges/${collegeId}`}
+                                  className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                                >
+                                  View College Details
+
+                                  <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path d="M5 12h14" />
+                                    <path d="m13 6 6 6-6 6" />
+                                  </svg>
+
+                                </Link>
+
+                              </div>
+                            )}
+
+                          </article>
+                        );
                       }
-                      className="w-full md:w-auto bg-gray-900 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-700 transition"
-                    >
-                      View College Details →
-                    </button>
+                    )}
 
                   </div>
 
                 </div>
+              )}
 
-              ))}
+          </section>
 
-            </div>
+        </div>
+
+      </main>
+
+      {/* =================================================
+          BOTTOM INFORMATION
+      ================================================= */}
+
+      <section className="border-t border-slate-200 bg-white">
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+
+          <div className="grid md:grid-cols-3 gap-6">
+
+            <InfoCard
+              number="01"
+              title="Based on cutoffs"
+              text="Predictions use available historical cutoff information for the selected exam."
+            />
+
+            <InfoCard
+              number="02"
+              title="Compare your options"
+              text="Look beyond a single college and explore multiple possible choices."
+            />
+
+            <InfoCard
+              number="03"
+              title="Need help?"
+              text="Connect with a verified counsellor if you want personalised admission guidance."
+              link="/counsellors"
+            />
 
           </div>
-        )}
 
-        {/* Empty State */}
-        {!loading &&
-          !error &&
-          results.length === 0 && (
-            <div className="mt-8 text-center text-gray-500">
-              Enter your details and click
-              <strong> Predict My Colleges </strong>
-              to see your recommendations.
-            </div>
-          )}
+        </div>
 
-      </div>
+      </section>
 
     </div>
   );
 }
 
-export default Predictor;
+// =====================================================
+// INFORMATION CARD
+// =====================================================
+
+function InfoCard({
+  number,
+  title,
+  text,
+  link,
+}) {
+  const content = (
+    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 h-full">
+
+      <span className="text-xs font-bold text-blue-600">
+        {number}
+      </span>
+
+      <h3 className="mt-4 text-lg font-bold text-slate-900">
+        {title}
+      </h3>
+
+      <p className="mt-2 text-sm leading-6 text-slate-500">
+        {text}
+      </p>
+
+      {link && (
+        <span className="inline-flex mt-4 text-sm font-semibold text-blue-600">
+          Find a Counsellor →
+        </span>
+      )}
+
+    </div>
+  );
+
+  if (link) {
+    return (
+      <Link
+        to={link}
+        className="block hover:shadow-lg hover:shadow-slate-900/5 transition rounded-2xl"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return content;
+}

@@ -10,7 +10,7 @@ import {
 const API_BASE_URL =
   "http://localhost:5000";
 
-export default function Login() {
+export default function CounsellorLogin() {
   const navigate =
     useNavigate();
 
@@ -52,22 +52,17 @@ export default function Login() {
       const email =
         form.email.trim();
 
-      const password =
-        form.password;
-
       if (!email) {
         setError(
           "Please enter your email address."
         );
-
         return;
       }
 
-      if (!password) {
+      if (!form.password) {
         setError(
           "Please enter your password."
         );
-
         return;
       }
 
@@ -77,7 +72,7 @@ export default function Login() {
 
         const response =
           await fetch(
-            `${API_BASE_URL}/api/auth/login`,
+            `${API_BASE_URL}/api/counsellor-auth/login`,
             {
               method: "POST",
               headers: {
@@ -86,7 +81,8 @@ export default function Login() {
               },
               body: JSON.stringify({
                 email,
-                password,
+                password:
+                  form.password,
               }),
             }
           );
@@ -97,7 +93,7 @@ export default function Login() {
         if (!response.ok) {
           throw new Error(
             result.message ||
-              "Login failed. Please check your credentials."
+              "Unable to login."
           );
         }
 
@@ -122,33 +118,21 @@ export default function Login() {
 
         localStorage.setItem(
           "user",
-          JSON.stringify(user)
+          JSON.stringify({
+            ...user,
+            role: "counsellor",
+          })
         );
 
-        // =================================================
-        // ROLE-BASED REDIRECTION
-        // =================================================
-
-        if (
-          user.role ===
-          "counsellor"
-        ) {
-          navigate(
-            "/counsellor-dashboard",
-            {
-              replace: true,
-            }
-          );
-
-          return;
-        }
-
-        navigate("/", {
-          replace: true,
-        });
+        navigate(
+          "/counsellor-dashboard",
+          {
+            replace: true,
+          }
+        );
       } catch (requestError) {
         console.error(
-          "Login error:",
+          "Counsellor login error:",
           requestError
         );
 
@@ -183,12 +167,13 @@ export default function Login() {
           </Link>
 
           <h1 className="mt-8 text-3xl font-bold text-slate-900">
-            Welcome Back
+            Counsellor Login
           </h1>
 
           <p className="mt-2 text-slate-500">
-            Sign in to continue your
-            admission journey.
+            Sign in to manage your
+            counselling sessions and
+            student appointments.
           </p>
         </div>
 
@@ -202,6 +187,29 @@ export default function Login() {
               {error}
             </div>
           )}
+
+          {/* =================================================
+              COUNSELLOR BADGE
+          ================================================= */}
+
+          <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50 p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-xl">
+                🧑‍💼
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-blue-900">
+                  Counsellor Portal
+                </p>
+
+                <p className="text-xs text-blue-700 mt-0.5">
+                  Verified counsellors
+                  only
+                </p>
+              </div>
+            </div>
+          </div>
 
           <form
             onSubmit={
@@ -228,7 +236,7 @@ export default function Login() {
                 onChange={
                   handleChange
                 }
-                placeholder="you@example.com"
+                placeholder="counsellor@example.com"
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 text-slate-900 outline-none transition focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -236,18 +244,12 @@ export default function Login() {
             {/* Password */}
 
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <label
-                  htmlFor="password"
-                  className="block text-sm font-semibold text-slate-700"
-                >
-                  Password
-                </label>
-
-                <span className="text-xs text-slate-400">
-                  Keep it secure
-                </span>
-              </div>
+              <label
+                htmlFor="password"
+                className="block text-sm font-semibold text-slate-700 mb-2"
+              >
+                Password
+              </label>
 
               <div className="relative">
                 <input
@@ -295,33 +297,41 @@ export default function Login() {
             >
               {loading
                 ? "Signing In..."
-                : "Sign In"}
+                : "Sign In as Counsellor"}
             </button>
           </form>
 
-          {/* Register */}
+          {/* =================================================
+              STUDENT LOGIN
+          ================================================= */}
 
           <div className="mt-6 pt-6 border-t border-slate-100 text-center">
             <p className="text-sm text-slate-500">
-              Don't have an account?
+              Are you a student?
             </p>
 
             <Link
-              to="/register"
+              to="/login"
               className="inline-block mt-1 text-sm font-semibold text-blue-600 hover:text-blue-800"
             >
-              Create a new account
+              Student Login
             </Link>
           </div>
         </div>
 
-        {/* Footer */}
+        {/* =================================================
+            NOTE
+        ================================================= */}
 
-        <p className="mt-6 text-center text-xs text-slate-400">
-          Find the right college,
-          course and counselling
-          support with Get Your Seat.
-        </p>
+        <div className="mt-6 text-center">
+          <p className="text-xs text-slate-400 leading-5">
+            New counsellors must be
+            verified by the
+            administrator before
+            accessing the counsellor
+            portal.
+          </p>
+        </div>
       </div>
     </div>
   );

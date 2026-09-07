@@ -1,108 +1,178 @@
-import { useEffect, useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import React, {
+  useEffect,
+  useState,
+} from "react";
 
-const API_BASE_URL = "http://localhost:5000/api";
+import {
+  Link,
+  NavLink,
+  useNavigate,
+} from "react-router-dom";
 
-function Navbar() {
-  const navigate = useNavigate();
+const API_BASE_URL =
+  "http://localhost:5000";
 
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
-  const [notificationCount, setNotificationCount] =
-    useState(0);
-  const [mobileOpen, setMobileOpen] =
-    useState(false);
+// =====================================================
+// HELPERS
+// =====================================================
 
-  // =====================================================
-  // LOAD LOGIN DATA
-  // =====================================================
-
-  useEffect(() => {
+const getStoredUser = () => {
+  try {
     const storedUser =
       localStorage.getItem("user");
 
-    const storedLoginData =
-      localStorage.getItem("loginData");
-
-    const storedToken =
-      localStorage.getItem("token");
-
-    let currentUser = null;
-
-    try {
-      if (storedUser) {
-        currentUser = JSON.parse(storedUser);
-      } else if (storedLoginData) {
-        const loginData =
-          JSON.parse(storedLoginData);
-
-        currentUser =
-          loginData.user ||
-          loginData.data?.user ||
-          null;
-      }
-    } catch (error) {
-      console.error(
-        "Failed to read user data:",
-        error
-      );
+    if (!storedUser) {
+      return null;
     }
 
-    setUser(currentUser);
-    setToken(storedToken);
-  }, []);
+    return JSON.parse(storedUser);
+  } catch (error) {
+    console.error(
+      "Failed to read stored user:",
+      error
+    );
 
-  // =====================================================
-  // FETCH STUDENT NOTIFICATION COUNT
-  // =====================================================
+    return null;
+  }
+};
+
+const getStoredToken = () => {
+  return localStorage.getItem(
+    "token"
+  );
+};
+
+// =====================================================
+// NAVBAR
+// =====================================================
+
+const Navbar = () => {
+  const navigate =
+    useNavigate();
+
+  const [
+    user,
+    setUser,
+  ] = useState(
+    getStoredUser()
+  );
+
+  const [
+    mobileOpen,
+    setMobileOpen,
+  ] = useState(false);
+
+  const [
+    unreadCount,
+    setUnreadCount,
+  ] = useState(0);
+
+  const isStudent =
+    user?.role ===
+    "student";
+
+  const isCounsellor =
+    user?.role ===
+    "counsellor";
+
+  // ===================================================
+  // CHECK LOGIN STATE
+  // ===================================================
 
   useEffect(() => {
-    const fetchNotificationCount =
+    const syncUser =
+      () => {
+        setUser(
+          getStoredUser()
+        );
+      };
+
+    window.addEventListener(
+      "storage",
+      syncUser
+    );
+
+    window.addEventListener(
+      "authChanged",
+      syncUser
+    );
+
+    return () => {
+      window.removeEventListener(
+        "storage",
+        syncUser
+      );
+
+      window.removeEventListener(
+        "authChanged",
+        syncUser
+      );
+    };
+  }, []);
+
+  // ===================================================
+  // FETCH UNREAD NOTIFICATIONS
+  // ===================================================
+
+  useEffect(() => {
+    if (!isStudent || !user) {
+      setUnreadCount(0);
+      return;
+    }
+
+    const fetchUnread =
       async () => {
-        if (
-          !user ||
-          user.role !== "student" ||
-          !token
-        ) {
-          setNotificationCount(0);
-          return;
-        }
-
-        const userId =
-          user.user_id ?? user.id;
-
-        if (!userId) {
-          return;
-        }
-
         try {
-          const response = await fetch(
-            `${API_BASE_URL}/notifications/student/${userId}`,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            }
-          );
+          const token =
+            getStoredToken();
 
-          const data =
-            await response.json();
+          if (!token) {
+            return;
+          }
+
+          const userId =
+            user.id ||
+            user.user_id;
+
+          if (!userId) {
+            return;
+          }
+
+          const response =
+            await fetch(
+              `${API_BASE_URL}/api/notifications/student/${userId}`,
+              {
+                headers: {
+                  Authorization:
+                    `Bearer ${token}`,
+                },
+              }
+            );
 
           if (!response.ok) {
             return;
           }
 
-          const notifications =
-            data.data || [];
+          const result =
+            await response.json();
 
-          const unreadCount =
-            notifications.filter(
+          if (
+            !result.success ||
+            !Array.isArray(
+              result.data
+            )
+          ) {
+            return;
+          }
+
+          const count =
+            result.data.filter(
               (notification) =>
                 !notification.is_read
             ).length;
 
-          setNotificationCount(
-            unreadCount
+          setUnreadCount(
+            count
           );
         } catch (error) {
           console.error(
@@ -112,561 +182,853 @@ function Navbar() {
         }
       };
 
-    fetchNotificationCount();
-  }, [user, token]);
+    fetchUnread();
 
-  // =====================================================
+    const interval =
+      setInterval(
+        fetchUnread,
+        30000
+      );
+
+    return () => {
+      clearInterval(
+        interval
+      );
+    };
+  }, [
+    isStudent,
+    user,
+  ]);
+
+  // ===================================================
   // LOGOUT
-  // =====================================================
+  // ===================================================
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("loginData");
+  const handleLogout =
+    () => {
+      localStorage.removeItem(
+        "token"
+      );
 
-    setUser(null);
-    setToken(null);
-    setNotificationCount(0);
-    setMobileOpen(false);
+      localStorage.removeItem(
+        "user"
+      );
 
-    navigate("/login");
-  };
+      setUser(null);
+      setUnreadCount(0);
+      setMobileOpen(false);
 
-  // =====================================================
-  // CLOSE MOBILE MENU
-  // =====================================================
+      window.dispatchEvent(
+        new Event(
+          "authChanged"
+        )
+      );
 
-  const closeMobileMenu = () => {
-    setMobileOpen(false);
-  };
+      navigate(
+        "/",
+        {
+          replace: true,
+        }
+      );
+    };
 
-  // =====================================================
+  // ===================================================
   // NAV LINK STYLE
-  // =====================================================
+  // ===================================================
 
-  const navLinkClass = ({ isActive }) =>
-    `transition-colors duration-200 ${
-      isActive
-        ? "text-blue-600 font-semibold"
-        : "text-slate-600 hover:text-blue-600"
-    }`;
+  const navLinkStyle =
+    ({ isActive }) => ({
+      textDecoration:
+        "none",
+      color: isActive
+        ? "#2563eb"
+        : "#475569",
+      fontWeight:
+        isActive
+          ? 700
+          : 600,
+      fontSize:
+        "0.9rem",
+      padding:
+        "0.5rem 0.65rem",
+      borderRadius:
+        "8px",
+      transition:
+        "all 0.2s ease",
+      background:
+        isActive
+          ? "#eff6ff"
+          : "transparent",
+    });
 
-  // =====================================================
-  // USER ROLE
-  // =====================================================
+  // ===================================================
+  // CLOSE MOBILE MENU
+  // ===================================================
 
-  const isStudent =
-    user?.role === "student";
-
-  const isCounsellor =
-    user?.role === "counsellor";
+  const closeMobile =
+    () => {
+      setMobileOpen(false);
+    };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="container-app">
-        <div className="flex h-16 items-center justify-between">
-          {/* =================================================
-              LOGO
-          ================================================= */}
+    <header
+      style={{
+        position:
+          "sticky",
+        top: 0,
+        zIndex: 1000,
+        background:
+          "rgba(255, 255, 255, 0.96)",
+        backdropFilter:
+          "blur(12px)",
+        borderBottom:
+          "1px solid #e2e8f0",
+      }}
+    >
+      <div
+        className="container"
+        style={{
+          minHeight:
+            "72px",
+          display:
+            "flex",
+          alignItems:
+            "center",
+          justifyContent:
+            "space-between",
+          gap:
+            "1rem",
+        }}
+      >
+        {/* =========================================
+            LOGO
+        ========================================= */}
 
-          <Link
-            to="/"
-            onClick={closeMobileMenu}
-            className="flex items-center gap-2.5"
+        <Link
+          to="/"
+          onClick={
+            closeMobile
+          }
+          style={{
+            textDecoration:
+              "none",
+            display:
+              "flex",
+            alignItems:
+              "center",
+            gap:
+              "0.7rem",
+            flexShrink:
+              0,
+          }}
+        >
+          <div
+            style={{
+              width:
+                "40px",
+              height:
+                "40px",
+              borderRadius:
+                "11px",
+              background:
+                "linear-gradient(135deg, #2563eb, #1d4ed8)",
+              color:
+                "#ffffff",
+              display:
+                "flex",
+              alignItems:
+                "center",
+              justifyContent:
+                "center",
+              fontWeight:
+                800,
+              fontSize:
+                "1rem",
+              boxShadow:
+                "0 6px 18px rgba(37, 99, 235, 0.25)",
+            }}
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
-              <span className="text-lg font-bold">
-                G
-              </span>
+            GY
+          </div>
+
+          <div>
+            <div
+              style={{
+                color:
+                  "#0f172a",
+                fontSize:
+                  "1.05rem",
+                fontWeight:
+                  800,
+                lineHeight:
+                  1.1,
+              }}
+            >
+              Get Your Seat
             </div>
 
-            <div className="hidden sm:block">
-              <div className="text-lg font-bold tracking-tight text-slate-900">
-                Get Your Seat
-              </div>
-
-              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-                Your Admission Companion
-              </div>
+            <div
+              style={{
+                color:
+                  "#64748b",
+                fontSize:
+                  "0.67rem",
+                fontWeight:
+                  600,
+                marginTop:
+                  "0.2rem",
+              }}
+            >
+              Find. Predict. Decide.
             </div>
-          </Link>
+          </div>
+        </Link>
 
-          {/* =================================================
-              DESKTOP NAVIGATION
-          ================================================= */}
+        {/* =========================================
+            DESKTOP NAVIGATION
+        ========================================= */}
 
-          <nav className="hidden items-center gap-6 lg:flex">
+        <nav
+          style={{
+            display:
+              "flex",
+            alignItems:
+              "center",
+            gap:
+              "0.15rem",
+            flex: 1,
+            justifyContent:
+              "center",
+          }}
+          className="desktop-navbar"
+        >
+          <NavLink
+            to="/"
+            style={
+              navLinkStyle
+            }
+          >
+            Home
+          </NavLink>
+
+          <NavLink
+            to="/colleges"
+            style={
+              navLinkStyle
+            }
+          >
+            Colleges
+          </NavLink>
+
+          <NavLink
+            to="/predictor"
+            style={
+              navLinkStyle
+            }
+          >
+            Predictor
+          </NavLink>
+
+          <NavLink
+            to="/counsellors"
+            style={
+              navLinkStyle
+            }
+          >
+            Counsellors
+          </NavLink>
+
+          <NavLink
+            to="/notices"
+            style={
+              navLinkStyle
+            }
+          >
+            Notices
+          </NavLink>
+
+          {isStudent && (
+            <NavLink
+              to="/my-appointments"
+              style={
+                navLinkStyle
+              }
+            >
+              Appointments
+            </NavLink>
+          )}
+
+          {isCounsellor && (
+            <>
+              <NavLink
+                to="/counsellor-dashboard"
+                style={
+                  navLinkStyle
+                }
+              >
+                Dashboard
+              </NavLink>
+
+              <NavLink
+                to="/counsellor-notices"
+                style={
+                  navLinkStyle
+                }
+              >
+                Manage Notices
+              </NavLink>
+            </>
+          )}
+        </nav>
+
+        {/* =========================================
+            DESKTOP ACCOUNT AREA
+        ========================================= */}
+
+        <div
+          className="desktop-navbar"
+          style={{
+            display:
+              "flex",
+            alignItems:
+              "center",
+            gap:
+              "0.5rem",
+          }}
+        >
+          {isStudent && (
+            <Link
+              to="/notifications"
+              style={{
+                position:
+                  "relative",
+                width:
+                  "38px",
+                height:
+                  "38px",
+                borderRadius:
+                  "9px",
+                display:
+                  "flex",
+                alignItems:
+                  "center",
+                justifyContent:
+                  "center",
+                textDecoration:
+                  "none",
+                color:
+                  "#475569",
+                background:
+                  "#f8fafc",
+                border:
+                  "1px solid #e2e8f0",
+                fontSize:
+                  "1rem",
+              }}
+              aria-label="Notifications"
+              title="Notifications"
+            >
+              🔔
+
+              {unreadCount >
+                0 && (
+                <span
+                  style={{
+                    position:
+                      "absolute",
+                    top:
+                      "-4px",
+                    right:
+                      "-4px",
+                    minWidth:
+                      "18px",
+                    height:
+                      "18px",
+                    padding:
+                      "0 4px",
+                    borderRadius:
+                      "999px",
+                    background:
+                      "#dc2626",
+                    color:
+                      "#ffffff",
+                    fontSize:
+                      "0.65rem",
+                    fontWeight:
+                      800,
+                    display:
+                      "flex",
+                    alignItems:
+                      "center",
+                    justifyContent:
+                      "center",
+                    border:
+                      "2px solid #ffffff",
+                  }}
+                >
+                  {unreadCount >
+                  99
+                    ? "99+"
+                    : unreadCount}
+                </span>
+              )}
+            </Link>
+          )}
+
+          {isStudent && (
+            <Link
+              to="/profile"
+              style={{
+                textDecoration:
+                  "none",
+                color:
+                  "#334155",
+                fontSize:
+                  "0.88rem",
+                fontWeight:
+                  700,
+                padding:
+                  "0.5rem 0.7rem",
+                borderRadius:
+                  "8px",
+              }}
+            >
+              Profile
+            </Link>
+          )}
+
+          {isCounsellor && (
+            <Link
+              to="/counsellor-profile"
+              style={{
+                textDecoration:
+                  "none",
+                color:
+                  "#334155",
+                fontSize:
+                  "0.88rem",
+                fontWeight:
+                  700,
+                padding:
+                  "0.5rem 0.7rem",
+                borderRadius:
+                  "8px",
+              }}
+            >
+              Profile
+            </Link>
+          )}
+
+          {!user && (
+            <>
+              <Link
+                to="/login"
+                className="btn btn-secondary"
+                style={{
+                  textDecoration:
+                    "none",
+                  padding:
+                    "0.55rem 0.85rem",
+                  fontSize:
+                    "0.84rem",
+                }}
+              >
+                Login
+              </Link>
+
+              <Link
+                to="/register"
+                className="btn btn-primary"
+                style={{
+                  textDecoration:
+                    "none",
+                  padding:
+                    "0.55rem 0.85rem",
+                  fontSize:
+                    "0.84rem",
+                }}
+              >
+                Get Started
+              </Link>
+            </>
+          )}
+
+          {user && (
+            <button
+              type="button"
+              onClick={
+                handleLogout
+              }
+              className="btn btn-secondary"
+              style={{
+                padding:
+                  "0.55rem 0.85rem",
+                fontSize:
+                  "0.84rem",
+              }}
+            >
+              Logout
+            </button>
+          )}
+        </div>
+
+        {/* =========================================
+            MOBILE MENU BUTTON
+        ========================================= */}
+
+        <button
+          type="button"
+          onClick={() =>
+            setMobileOpen(
+              (previous) =>
+                !previous
+            )
+          }
+          className="mobile-menu-button"
+          aria-label="Toggle navigation"
+          style={{
+            width:
+              "42px",
+            height:
+              "42px",
+            borderRadius:
+              "9px",
+            border:
+              "1px solid #e2e8f0",
+            background:
+              "#ffffff",
+            color:
+              "#334155",
+            fontSize:
+              "1.25rem",
+            cursor:
+              "pointer",
+          }}
+        >
+          {mobileOpen
+            ? "✕"
+            : "☰"}
+        </button>
+      </div>
+
+      {/* ===========================================
+          MOBILE NAVIGATION
+      =========================================== */}
+
+      {mobileOpen && (
+        <div
+          style={{
+            borderTop:
+              "1px solid #e2e8f0",
+            background:
+              "#ffffff",
+            padding:
+              "0.75rem 1rem 1.25rem",
+          }}
+          className="mobile-navbar"
+        >
+          <div
+            className="container"
+            style={{
+              display:
+                "flex",
+              flexDirection:
+                "column",
+              gap:
+                "0.3rem",
+            }}
+          >
             <NavLink
               to="/"
-              className={navLinkClass}
+              onClick={
+                closeMobile
+              }
+              style={
+                navLinkStyle
+              }
             >
               Home
             </NavLink>
 
             <NavLink
               to="/colleges"
-              className={navLinkClass}
+              onClick={
+                closeMobile
+              }
+              style={
+                navLinkStyle
+              }
             >
               Colleges
             </NavLink>
 
             <NavLink
+              to="/predictor"
+              onClick={
+                closeMobile
+              }
+              style={
+                navLinkStyle
+              }
+            >
+              Predictor
+            </NavLink>
+
+            <NavLink
               to="/counsellors"
-              className={navLinkClass}
+              onClick={
+                closeMobile
+              }
+              style={
+                navLinkStyle
+              }
             >
               Counsellors
             </NavLink>
 
             <NavLink
-              to="/about"
-              className={navLinkClass}
+              to="/notices"
+              onClick={
+                closeMobile
+              }
+              style={
+                navLinkStyle
+              }
             >
-              About
+              Notices
             </NavLink>
-
-            {/* STUDENT LINKS */}
 
             {isStudent && (
               <>
                 <NavLink
-                  to="/counsellor-booking"
-                  className={navLinkClass}
+                  to="/my-appointments"
+                  onClick={
+                    closeMobile
+                  }
+                  style={
+                    navLinkStyle
+                  }
                 >
-                  Book Counsellor
+                  My Appointments
                 </NavLink>
 
                 <NavLink
-                  to="/my-appointments"
-                  className={navLinkClass}
+                  to="/notifications"
+                  onClick={
+                    closeMobile
+                  }
+                  style={
+                    navLinkStyle
+                  }
                 >
-                  Appointments
+                  Notifications
+                  {unreadCount >
+                    0 && (
+                    <span
+                      style={{
+                        marginLeft:
+                          "0.5rem",
+                        padding:
+                          "0.15rem 0.45rem",
+                        borderRadius:
+                          "999px",
+                        background:
+                          "#fee2e2",
+                        color:
+                          "#dc2626",
+                        fontSize:
+                          "0.7rem",
+                        fontWeight:
+                          800,
+                      }}
+                    >
+                      {unreadCount}
+                    </span>
+                  )}
+                </NavLink>
+
+                <NavLink
+                  to="/profile"
+                  onClick={
+                    closeMobile
+                  }
+                  style={
+                    navLinkStyle
+                  }
+                >
+                  Profile
                 </NavLink>
               </>
             )}
-
-            {/* COUNSELLOR LINKS */}
 
             {isCounsellor && (
               <>
                 <NavLink
                   to="/counsellor-dashboard"
-                  className={navLinkClass}
+                  onClick={
+                    closeMobile
+                  }
+                  style={
+                    navLinkStyle
+                  }
                 >
                   Dashboard
                 </NavLink>
 
                 <NavLink
+                  to="/counsellor-profile"
+                  onClick={
+                    closeMobile
+                  }
+                  style={
+                    navLinkStyle
+                  }
+                >
+                  Profile
+                </NavLink>
+
+                <NavLink
                   to="/counsellor-availability"
-                  className={navLinkClass}
+                  onClick={
+                    closeMobile
+                  }
+                  style={
+                    navLinkStyle
+                  }
                 >
                   Availability
                 </NavLink>
 
                 <NavLink
                   to="/counsellor-notices"
-                  className={navLinkClass}
+                  onClick={
+                    closeMobile
+                  }
+                  style={
+                    navLinkStyle
+                  }
                 >
-                  Notices
+                  Manage Notices
                 </NavLink>
               </>
             )}
-          </nav>
 
-          {/* =================================================
-              RIGHT SIDE
-          ================================================= */}
+            <div
+              style={{
+                height:
+                  "1px",
+                background:
+                  "#e2e8f0",
+                margin:
+                  "0.6rem 0",
+              }}
+            />
 
-          <div className="hidden items-center gap-3 md:flex">
-            {/* STUDENT NOTIFICATIONS */}
-
-            {isStudent && (
-              <Link
-                to="/notifications"
-                className="relative flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100 hover:text-blue-600"
-                aria-label="Notifications"
+            {!user && (
+              <div
+                style={{
+                  display:
+                    "grid",
+                  gridTemplateColumns:
+                    "1fr 1fr",
+                  gap:
+                    "0.5rem",
+                }}
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth="1.8"
-                  stroke="currentColor"
-                  className="h-5 w-5"
+                <Link
+                  to="/login"
+                  onClick={
+                    closeMobile
+                  }
+                  className="btn btn-secondary"
+                  style={{
+                    textDecoration:
+                      "none",
+                    textAlign:
+                      "center",
+                  }}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9a6 6 0 0 0-12 0v.75c0 2.028-.673 3.906-1.81 5.414a23.85 23.85 0 0 0 5.454 1.31m5.213 0a24.255 24.255 0 0 1-5.213 0m5.213 0a3 3 0 1 1-5.213 0"
-                  />
-                </svg>
+                  Login
+                </Link>
 
-                {notificationCount > 0 && (
-                  <span className="absolute right-1 top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                    {notificationCount >
-                    9
-                      ? "9+"
-                      : notificationCount}
-                  </span>
-                )}
-              </Link>
+                <Link
+                  to="/register"
+                  onClick={
+                    closeMobile
+                  }
+                  className="btn btn-primary"
+                  style={{
+                    textDecoration:
+                      "none",
+                    textAlign:
+                      "center",
+                  }}
+                >
+                  Register
+                </Link>
+              </div>
             )}
-
-            {/* PROFILE */}
-
-            {user ? (
-              <Link
-                to={
-                  isCounsellor
-                    ? "/counsellor-profile"
-                    : "/profile"
-                }
-                className="flex items-center gap-2 rounded-xl px-2 py-1.5 transition hover:bg-slate-100"
-              >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
-                  {(
-                    user.full_name ||
-                    user.name ||
-                    "U"
-                  )
-                    .charAt(0)
-                    .toUpperCase()}
-                </div>
-
-                <div className="hidden xl:block max-w-[130px]">
-                  <div className="truncate text-sm font-semibold text-slate-800">
-                    {user.full_name ||
-                      user.name ||
-                      "User"}
-                  </div>
-
-                  <div className="text-[11px] capitalize text-slate-500">
-                    {user.role ||
-                      "student"}
-                  </div>
-                </div>
-              </Link>
-            ) : (
-              <Link
-                to="/login"
-                className="btn btn-primary"
-              >
-                Login
-              </Link>
-            )}
-
-            {/* LOGOUT */}
 
             {user && (
               <button
                 type="button"
-                onClick={handleLogout}
-                className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-red-600"
+                onClick={() => {
+                  handleLogout();
+                  closeMobile();
+                }}
+                className="btn btn-secondary"
+                style={{
+                  width:
+                    "100%",
+                }}
               >
                 Logout
               </button>
             )}
           </div>
-
-          {/* =================================================
-              MOBILE MENU BUTTON
-          ================================================= */}
-
-          <button
-            type="button"
-            onClick={() =>
-              setMobileOpen(
-                (previous) =>
-                  !previous
-              )
-            }
-            className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 transition hover:bg-slate-100 md:hidden"
-            aria-label="Toggle menu"
-          >
-            {mobileOpen ? (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="2"
-                stroke="currentColor"
-                className="h-6 w-6"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M6 18 18 6M6 6l12 12"
-                />
-              </svg>
-            ) : (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="2"
-                stroke="currentColor"
-                className="h-6 w-6"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 6h16M4 12h16M4 18h16"
-                />
-              </svg>
-            )}
-          </button>
         </div>
+      )}
 
-        {/* ===================================================
-            MOBILE NAVIGATION
-        =================================================== */}
+      {/* ===========================================
+          RESPONSIVE STYLES
+      =========================================== */}
 
-        {mobileOpen && (
-          <div className="border-t border-slate-100 py-4 md:hidden">
-            <nav className="flex flex-col gap-1">
-              <NavLink
-                to="/"
-                onClick={closeMobileMenu}
-                className={({ isActive }) =>
-                  `rounded-xl px-4 py-3 text-sm ${
-                    isActive
-                      ? "bg-blue-50 font-semibold text-blue-600"
-                      : "text-slate-700 hover:bg-slate-50"
-                  }`
-                }
-              >
-                Home
-              </NavLink>
+      <style>
+        {`
+          .mobile-menu-button,
+          .mobile-navbar {
+            display: none;
+          }
 
-              <NavLink
-                to="/colleges"
-                onClick={closeMobileMenu}
-                className={({ isActive }) =>
-                  `rounded-xl px-4 py-3 text-sm ${
-                    isActive
-                      ? "bg-blue-50 font-semibold text-blue-600"
-                      : "text-slate-700 hover:bg-slate-50"
-                  }`
-                }
-              >
-                Colleges
-              </NavLink>
+          @media (max-width: 1050px) {
+            .desktop-navbar {
+              display: none !important;
+            }
 
-              <NavLink
-                to="/counsellors"
-                onClick={closeMobileMenu}
-                className={({ isActive }) =>
-                  `rounded-xl px-4 py-3 text-sm ${
-                    isActive
-                      ? "bg-blue-50 font-semibold text-blue-600"
-                      : "text-slate-700 hover:bg-slate-50"
-                  }`
-                }
-              >
-                Counsellors
-              </NavLink>
+            .mobile-menu-button {
+              display: flex !important;
+              align-items: center;
+              justify-content: center;
+            }
 
-              <NavLink
-                to="/about"
-                onClick={closeMobileMenu}
-                className={({ isActive }) =>
-                  `rounded-xl px-4 py-3 text-sm ${
-                    isActive
-                      ? "bg-blue-50 font-semibold text-blue-600"
-                      : "text-slate-700 hover:bg-slate-50"
-                  }`
-                }
-              >
-                About
-              </NavLink>
+            .mobile-navbar {
+              display: block !important;
+            }
+          }
 
-              {/* STUDENT MOBILE LINKS */}
+          @media (max-width: 520px) {
+            header .container {
+              min-height: 64px !important;
+            }
 
-              {isStudent && (
-                <>
-                  <NavLink
-                    to="/counsellor-booking"
-                    onClick={
-                      closeMobileMenu
-                    }
-                    className={({ isActive }) =>
-                      `rounded-xl px-4 py-3 text-sm ${
-                        isActive
-                          ? "bg-blue-50 font-semibold text-blue-600"
-                          : "text-slate-700 hover:bg-slate-50"
-                      }`
-                    }
-                  >
-                    Book Counsellor
-                  </NavLink>
-
-                  <NavLink
-                    to="/my-appointments"
-                    onClick={
-                      closeMobileMenu
-                    }
-                    className={({ isActive }) =>
-                      `rounded-xl px-4 py-3 text-sm ${
-                        isActive
-                          ? "bg-blue-50 font-semibold text-blue-600"
-                          : "text-slate-700 hover:bg-slate-50"
-                      }`
-                    }
-                  >
-                    My Appointments
-                  </NavLink>
-
-                  <NavLink
-                    to="/notifications"
-                    onClick={
-                      closeMobileMenu
-                    }
-                    className={({ isActive }) =>
-                      `flex items-center justify-between rounded-xl px-4 py-3 text-sm ${
-                        isActive
-                          ? "bg-blue-50 font-semibold text-blue-600"
-                          : "text-slate-700 hover:bg-slate-50"
-                      }`
-                    }
-                  >
-                    <span>
-                      Notifications
-                    </span>
-
-                    {notificationCount >
-                      0 && (
-                      <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
-                        {notificationCount >
-                        9
-                          ? "9+"
-                          : notificationCount}
-                      </span>
-                    )}
-                  </NavLink>
-                </>
-              )}
-
-              {/* COUNSELLOR MOBILE LINKS */}
-
-              {isCounsellor && (
-                <>
-                  <NavLink
-                    to="/counsellor-dashboard"
-                    onClick={
-                      closeMobileMenu
-                    }
-                    className={({ isActive }) =>
-                      `rounded-xl px-4 py-3 text-sm ${
-                        isActive
-                          ? "bg-blue-50 font-semibold text-blue-600"
-                          : "text-slate-700 hover:bg-slate-50"
-                      }`
-                    }
-                  >
-                    Dashboard
-                  </NavLink>
-
-                  <NavLink
-                    to="/counsellor-availability"
-                    onClick={
-                      closeMobileMenu
-                    }
-                    className={({ isActive }) =>
-                      `rounded-xl px-4 py-3 text-sm ${
-                        isActive
-                          ? "bg-blue-50 font-semibold text-blue-600"
-                          : "text-slate-700 hover:bg-slate-50"
-                      }`
-                    }
-                  >
-                    Availability
-                  </NavLink>
-
-                  <NavLink
-                    to="/counsellor-notices"
-                    onClick={
-                      closeMobileMenu
-                    }
-                    className={({ isActive }) =>
-                      `rounded-xl px-4 py-3 text-sm ${
-                        isActive
-                          ? "bg-blue-50 font-semibold text-blue-600"
-                          : "text-slate-700 hover:bg-slate-50"
-                      }`
-                    }
-                  >
-                    Notice Management
-                  </NavLink>
-                </>
-              )}
-
-              {/* USER ACTIONS */}
-
-              <div className="mt-3 border-t border-slate-100 pt-3">
-                {user ? (
-                  <>
-                    <NavLink
-                      to={
-                        isCounsellor
-                          ? "/counsellor-profile"
-                          : "/profile"
-                      }
-                      onClick={
-                        closeMobileMenu
-                      }
-                      className="flex items-center gap-3 rounded-xl px-4 py-3"
-                    >
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
-                        {(
-                          user.full_name ||
-                          user.name ||
-                          "U"
-                        )
-                          .charAt(0)
-                          .toUpperCase()}
-                      </div>
-
-                      <div>
-                        <div className="text-sm font-semibold text-slate-800">
-                          {user.full_name ||
-                            user.name ||
-                            "User"}
-                        </div>
-
-                        <div className="text-xs capitalize text-slate-500">
-                          {user.role ||
-                            "student"}
-                        </div>
-                      </div>
-                    </NavLink>
-
-                    <button
-                      type="button"
-                      onClick={
-                        handleLogout
-                      }
-                      className="mt-1 w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
-                    >
-                      Logout
-                    </button>
-                  </>
-                ) : (
-                  <Link
-                    to="/login"
-                    onClick={
-                      closeMobileMenu
-                    }
-                    className="btn btn-primary mx-4 flex justify-center"
-                  >
-                    Login
-                  </Link>
-                )}
-              </div>
-            </nav>
-          </div>
-        )}
-      </div>
+            header a {
+              -webkit-tap-highlight-color: transparent;
+            }
+          }
+        `}
+      </style>
     </header>
   );
-}
+};
 
 export default Navbar;

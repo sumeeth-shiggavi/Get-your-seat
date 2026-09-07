@@ -1,719 +1,199 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+
+const API_BASE_URL = "http://localhost:5000/api";
+
+const DAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+
+const EMPTY_FORM = {
+  day_of_week: "Monday",
+  start_time: "09:00",
+  end_time: "17:00",
+  is_available: true,
+};
+
+const formatTime = (time) => {
+  if (!time) {
+    return "";
+  }
+
+  const value = String(time).substring(0, 5);
+  const [hours, minutes] = value
+    .split(":")
+    .map(Number);
+
+  if (
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes)
+  ) {
+    return value;
+  }
+
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour =
+    hours % 12 || 12;
+
+  return `${displayHour}:${String(
+    minutes
+  ).padStart(2, "0")} ${suffix}`;
+};
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(
+      localStorage.getItem("user") || "null"
+    );
+  } catch {
+    return null;
+  }
+};
+
+const getUserId = (user) =>
+  user?.user_id ?? user?.id ?? null;
+
+const getToken = () =>
+  localStorage.getItem("token");
 
 function CounsellorAvailability() {
-  const navigate = useNavigate();
+  const [user] = useState(
+    getStoredUser
+  );
 
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState("");
+  const [availability, setAvailability] =
+    useState([]);
 
-  const [availability, setAvailability] = useState([]);
+  const [form, setForm] =
+    useState(EMPTY_FORM);
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] =
+    useState(null);
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [loading, setLoading] =
+    useState(true);
 
-  const [formData, setFormData] = useState({
-    day_of_week: "",
-    start_time: "",
-    end_time: "",
-  });
+  const [saving, setSaving] =
+    useState(false);
 
-  const [editingId, setEditingId] = useState(null);
+  const [deletingId, setDeletingId] =
+    useState(null);
 
-  // =====================================================
-  // DAYS ORDER
-  // =====================================================
+  const [error, setError] =
+    useState("");
 
-  const daysOrder = {
-    Monday: 1,
-    Tuesday: 2,
-    Wednesday: 3,
-    Thursday: 4,
-    Friday: 5,
-    Saturday: 6,
-    Sunday: 7,
-  };
+  const [success, setSuccess] =
+    useState("");
 
-  // =====================================================
-  // AUTHENTICATION
-  // =====================================================
+  const token = getToken();
+  const userId = getUserId(user);
 
-  useEffect(() => {
-    try {
-      const storedUser =
-        localStorage.getItem("user");
-
-      const storedToken =
-        localStorage.getItem("token");
-
-      if (!storedUser || !storedToken) {
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      const parsedUser =
-        JSON.parse(storedUser);
-
-      if (
-        !parsedUser ||
-        parsedUser.role !== "counsellor"
-      ) {
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      const userId =
-        parsedUser.user_id ??
-        parsedUser.id;
-
-      if (!userId) {
-        console.error(
-          "Counsellor user ID is missing:",
-          parsedUser
-        );
-
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        localStorage.removeItem("loginData");
-
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      const normalizedUser = {
-        ...parsedUser,
-        user_id: userId,
-        id:
-          parsedUser.id ??
-          userId,
-      };
-
-      setUser(normalizedUser);
-      setToken(storedToken);
-    } catch (error) {
-      console.error(
-        "Invalid user data:",
-        error
-      );
-
-      localStorage.removeItem("user");
-      localStorage.removeItem("token");
-      localStorage.removeItem("loginData");
-
-      navigate("/login", {
-        replace: true,
-      });
-    }
-  }, [navigate]);
-
-  // =====================================================
-  // FETCH AVAILABILITY
-  // =====================================================
-
-  const fetchAvailability = async () => {
-    try {
-      setError("");
-
-      const storedUser =
-        localStorage.getItem("user");
-
-      const storedToken =
-        localStorage.getItem("token");
-
-      if (!storedUser || !storedToken) {
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      const loggedInUser =
-        JSON.parse(storedUser);
-
-      if (
-        !loggedInUser ||
-        loggedInUser.role !== "counsellor"
-      ) {
-        setError(
-          "Please login as a counsellor to manage availability."
-        );
-
-        return;
-      }
-
-      const userId =
-        loggedInUser.user_id ??
-        loggedInUser.id;
-
-      if (!userId) {
-        setError(
-          "Counsellor account information is incomplete. Please login again."
-        );
-
-        return;
-      }
-
-      const response = await fetch(
-        `http://localhost:5000/api/counsellor-availability/${userId}`,
-        {
-          method: "GET",
-
-          headers: {
-            Authorization:
-              `Bearer ${storedToken}`,
-          },
-        }
-      );
-
-      let data = {};
-
-      try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
-
-      // =================================================
-      // TOKEN ERROR
-      // =================================================
-
-      if (response.status === 401) {
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        localStorage.removeItem("loginData");
-
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      // =================================================
-      // ROLE ERROR
-      // =================================================
-
-      if (response.status === 403) {
-        setError(
-          data.message ||
-            "You are not authorized to manage availability."
-        );
-
-        return;
-      }
-
-      // =================================================
-      // OTHER ERROR
-      // =================================================
-
-      if (
-        !response.ok ||
-        !data.success
-      ) {
-        throw new Error(
-          data.message ||
-            "Failed to load availability."
-        );
-      }
-
-      // =================================================
-      // SORT AVAILABILITY
-      // =================================================
-
-      const schedules =
-        Array.isArray(data.data)
-          ? [...data.data]
-          : [];
-
-      schedules.sort((a, b) => {
-        const dayDifference =
-          (daysOrder[a.day_of_week] || 99) -
-          (daysOrder[b.day_of_week] || 99);
-
-        if (dayDifference !== 0) {
-          return dayDifference;
-        }
-
-        return (
-          String(a.start_time || "").localeCompare(
-            String(b.start_time || "")
-          )
-        );
-      });
-
-      setAvailability(schedules);
-    } catch (error) {
-      console.error(
-        "Fetch availability error:",
-        error
-      );
-
-      setError(
-        error.message ||
-          "Unable to load availability."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  const headers = useMemo(
+    () => ({
+      "Content-Type":
+        "application/json",
+      Authorization: `Bearer ${token}`,
+    }),
+    [token]
+  );
 
   // =====================================================
   // LOAD AVAILABILITY
   // =====================================================
 
-  useEffect(() => {
-    if (user && token) {
-      fetchAvailability();
-    }
-  }, [user, token]);
-
-  // =====================================================
-  // HANDLE INPUT CHANGE
-  // =====================================================
-
-  const handleChange = (e) => {
-    const {
-      name,
-      value,
-    } = e.target;
-
-    setFormData((previous) => ({
-      ...previous,
-      [name]: value,
-    }));
-
-    setError("");
-    setSuccess("");
-  };
-
-  // =====================================================
-  // RESET FORM
-  // =====================================================
-
-  const resetForm = () => {
-    setFormData({
-      day_of_week: "",
-      start_time: "",
-      end_time: "",
-    });
-
-    setEditingId(null);
-  };
-
-  // =====================================================
-  // CHECK FRONTEND OVERLAP
-  // =====================================================
-
-  const hasOverlappingSchedule = () => {
-    const newStart =
-      formData.start_time;
-
-    const newEnd =
-      formData.end_time;
-
-    if (
-      !formData.day_of_week ||
-      !newStart ||
-      !newEnd
-    ) {
-      return false;
-    }
-
-    const newStartMinutes =
-      timeToMinutes(newStart);
-
-    const newEndMinutes =
-      timeToMinutes(newEnd);
-
-    return availability.some(
-      (slot) => {
-        if (
-          slot.day_of_week !==
-          formData.day_of_week
-        ) {
-          return false;
-        }
-
-        if (
-          editingId &&
-          Number(slot.id) ===
-            Number(editingId)
-        ) {
-          return false;
-        }
-
-        const existingStart =
-          timeToMinutes(
-            slot.start_time
-              ? slot.start_time.slice(0, 5)
-              : ""
-          );
-
-        const existingEnd =
-          timeToMinutes(
-            slot.end_time
-              ? slot.end_time.slice(0, 5)
-              : ""
-          );
-
-        return (
-          newStartMinutes <
-            existingEnd &&
-          newEndMinutes >
-            existingStart
-        );
-      }
-    );
-  };
-
-  // =====================================================
-  // TIME TO MINUTES
-  // =====================================================
-
-  const timeToMinutes = (time) => {
-    if (!time) {
-      return 0;
-    }
-
-    const [
-      hours,
-      minutes,
-    ] = time.split(":").map(Number);
-
-    return (
-      hours * 60 +
-      minutes
-    );
-  };
-
-  // =====================================================
-  // ADD / UPDATE AVAILABILITY
-  // =====================================================
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    setError("");
-    setSuccess("");
-
-    // -------------------------------------------------
-    // BASIC VALIDATION
-    // -------------------------------------------------
-
-    if (
-      !formData.day_of_week ||
-      !formData.start_time ||
-      !formData.end_time
-    ) {
-      setError(
-        "Please select a day, start time and end time."
-      );
-
-      return;
-    }
-
-    if (
-      formData.start_time >=
-      formData.end_time
-    ) {
-      setError(
-        "Start time must be before end time."
-      );
-
-      return;
-    }
-
-    // -------------------------------------------------
-    // MINIMUM 30 MINUTES
-    // -------------------------------------------------
-
-    const startMinutes =
-      timeToMinutes(
-        formData.start_time
-      );
-
-    const endMinutes =
-      timeToMinutes(
-        formData.end_time
-      );
-
-    if (
-      endMinutes -
-        startMinutes <
-      30
-    ) {
-      setError(
-        "Availability must be at least 30 minutes long."
-      );
-
-      return;
-    }
-
-    // -------------------------------------------------
-    // CHECK OVERLAP
-    // -------------------------------------------------
-
-    if (hasOverlappingSchedule()) {
-      setError(
-        "This availability overlaps with another schedule on the same day."
-      );
-
-      return;
-    }
-
-    // -------------------------------------------------
-    // AUTHENTICATION
-    // -------------------------------------------------
-
-    const storedUser =
-      localStorage.getItem("user");
-
-    const storedToken =
-      localStorage.getItem("token");
-
-    if (!storedUser || !storedToken) {
-      navigate("/login", {
-        replace: true,
-      });
-
-      return;
-    }
-
-    let loggedInUser;
-
-    try {
-      loggedInUser =
-        JSON.parse(storedUser);
-    } catch {
-      localStorage.removeItem("user");
-      localStorage.removeItem("token");
-      localStorage.removeItem("loginData");
-
-      navigate("/login", {
-        replace: true,
-      });
-
-      return;
-    }
-
-    if (
-      !loggedInUser ||
-      loggedInUser.role !== "counsellor"
-    ) {
-      setError(
-        "Please login as a counsellor."
-      );
-
-      return;
-    }
-
-    const userId =
-      loggedInUser.user_id ??
-      loggedInUser.id;
-
-    if (!userId) {
-      setError(
-        "Counsellor account information is incomplete. Please login again."
-      );
-
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      let url = "";
-      let method = "";
-      let body = {};
-
-      // =================================================
-      // UPDATE
-      // =================================================
-
-      if (editingId) {
-        url =
-          `http://localhost:5000/api/counsellor-availability/slot/${editingId}`;
-
-        method = "PUT";
-
-        body = {
-          day_of_week:
-            formData.day_of_week,
-
-          start_time:
-            formData.start_time,
-
-          end_time:
-            formData.end_time,
-
-          is_available: true,
-        };
-      }
-
-      // =================================================
-      // ADD
-      // =================================================
-
-      else {
-        url =
-          `http://localhost:5000/api/counsellor-availability/${userId}`;
-
-        method = "POST";
-
-        body = {
-          day_of_week:
-            formData.day_of_week,
-
-          start_time:
-            formData.start_time,
-
-          end_time:
-            formData.end_time,
-        };
-      }
-
-      const response = await fetch(
-        url,
-        {
-          method,
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            Authorization:
-              `Bearer ${storedToken}`,
-          },
-
-          body: JSON.stringify(body),
-        }
-      );
-
-      let data = {};
-
-      try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
-
-      // =================================================
-      // TOKEN ERROR
-      // =================================================
-
-      if (response.status === 401) {
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        localStorage.removeItem("loginData");
-
-        navigate("/login", {
-          replace: true,
-        });
-
+  const loadAvailability =
+    async () => {
+      if (!token || !userId) {
+        setLoading(false);
         return;
       }
 
-      // =================================================
-      // ROLE ERROR
-      // =================================================
+      try {
+        setLoading(true);
+        setError("");
 
-      if (response.status === 403) {
-        throw new Error(
-          data.message ||
-            "You are not authorized to modify availability."
+        const response =
+          await fetch(
+            `${API_BASE_URL}/counsellor-availability/${userId}`,
+            {
+              headers,
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+              "Failed to load availability."
+          );
+        }
+
+        setAvailability(
+          result.data || []
         );
+      } catch (err) {
+        setError(
+          err.message ||
+            "Failed to load availability."
+        );
+      } finally {
+        setLoading(false);
       }
+    };
 
-      // =================================================
-      // CONFLICT
-      // =================================================
+  useEffect(() => {
+    loadAvailability();
+  }, [userId, token]);
 
-      if (response.status === 409) {
-        throw new Error(
-          data.message ||
-            "This availability conflicts with an existing schedule."
-        );
-      }
+  // =====================================================
+  // FORM HANDLING
+  // =====================================================
 
-      // =================================================
-      // OTHER ERROR
-      // =================================================
+  const handleChange = (event) => {
+    const {
+      name,
+      value,
+      type,
+      checked,
+    } = event.target;
 
-      if (
-        !response.ok ||
-        !data.success
-      ) {
-        throw new Error(
-          data.message ||
-            "Failed to save availability."
-        );
-      }
-
-      // =================================================
-      // SUCCESS
-      // =================================================
-
-      if (editingId) {
-        setSuccess(
-          "Availability updated successfully."
-        );
-      } else {
-        setSuccess(
-          "Availability added successfully."
-        );
-      }
-
-      resetForm();
-
-      await fetchAvailability();
-    } catch (error) {
-      console.error(
-        "Save availability error:",
-        error
-      );
-
-      setError(
-        error.message ||
-          "Unable to save availability."
-      );
-    } finally {
-      setSaving(false);
-    }
+    setForm((current) => ({
+      ...current,
+      [name]:
+        type === "checkbox"
+          ? checked
+          : value,
+    }));
   };
 
-  // =====================================================
-  // EDIT AVAILABILITY
-  // =====================================================
+  const resetForm = () => {
+    setForm(EMPTY_FORM);
+    setEditingId(null);
+  };
 
-  const handleEdit = (slot) => {
+  const startEdit = (slot) => {
     setEditingId(slot.id);
 
-    setFormData({
+    setForm({
       day_of_week:
-        slot.day_of_week || "",
-
+        slot.day_of_week,
       start_time:
-        slot.start_time
-          ? slot.start_time.slice(0, 5)
-          : "",
-
+        String(
+          slot.start_time
+        ).substring(0, 5),
       end_time:
-        slot.end_time
-          ? slot.end_time.slice(0, 5)
-          : "",
+        String(
+          slot.end_time
+        ).substring(0, 5),
+      is_available:
+        slot.is_available,
     });
 
     setError("");
@@ -726,285 +206,247 @@ function CounsellorAvailability() {
   };
 
   // =====================================================
-  // DELETE AVAILABILITY
+  // SAVE AVAILABILITY
   // =====================================================
 
-  const handleDelete = async (id) => {
-    const confirmed =
-      window.confirm(
-        "Are you sure you want to delete this availability?"
-      );
+  const handleSubmit =
+    async (event) => {
+      event.preventDefault();
 
-    if (!confirmed) {
-      return;
-    }
+      setError("");
+      setSuccess("");
 
-    setError("");
-    setSuccess("");
-
-    const storedToken =
-      localStorage.getItem("token");
-
-    if (!storedToken) {
-      setError(
-        "Authentication token is missing. Please login again."
-      );
-
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `http://localhost:5000/api/counsellor-availability/slot/${id}`,
-        {
-          method: "DELETE",
-
-          headers: {
-            Authorization:
-              `Bearer ${storedToken}`,
-          },
-        }
-      );
-
-      let data = {};
-
-      try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
-
-      // =================================================
-      // TOKEN ERROR
-      // =================================================
-
-      if (response.status === 401) {
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        localStorage.removeItem("loginData");
-
-        navigate("/login", {
-          replace: true,
-        });
-
+      if (!token || !userId) {
+        setError(
+          "Please login as a counsellor first."
+        );
         return;
       }
 
-      // =================================================
-      // ROLE ERROR
-      // =================================================
-
-      if (response.status === 403) {
-        throw new Error(
-          data.message ||
-            "You are not authorized to delete this availability."
+      if (
+        !form.day_of_week ||
+        !form.start_time ||
+        !form.end_time
+      ) {
+        setError(
+          "Please fill all required fields."
         );
+        return;
       }
 
-      // =================================================
-      // OTHER ERROR
-      // =================================================
+      if (
+        form.start_time >=
+        form.end_time
+      ) {
+        setError(
+          "End time must be later than start time."
+        );
+        return;
+      }
+
+      const startMinutes =
+        Number(
+          form.start_time
+            .split(":")[0]
+        ) *
+          60 +
+        Number(
+          form.start_time
+            .split(":")[1]
+        );
+
+      const endMinutes =
+        Number(
+          form.end_time
+            .split(":")[0]
+        ) *
+          60 +
+        Number(
+          form.end_time
+            .split(":")[1]
+        );
 
       if (
-        !response.ok ||
-        !data.success
+        startMinutes % 30 !== 0 ||
+        endMinutes % 30 !== 0
       ) {
-        throw new Error(
-          data.message ||
+        setError(
+          "Please select times on 30-minute boundaries, such as 09:00, 09:30 or 10:00."
+        );
+        return;
+      }
+
+      if (
+        endMinutes - startMinutes <
+        30
+      ) {
+        setError(
+          "Availability must be at least 30 minutes."
+        );
+        return;
+      }
+
+      try {
+        setSaving(true);
+
+        const url = editingId
+          ? `${API_BASE_URL}/counsellor-availability/slot/${editingId}`
+          : `${API_BASE_URL}/counsellor-availability/${userId}`;
+
+        const method =
+          editingId ? "PUT" : "POST";
+
+        const response =
+          await fetch(url, {
+            method,
+            headers,
+            body: JSON.stringify({
+              day_of_week:
+                form.day_of_week,
+              start_time:
+                form.start_time,
+              end_time:
+                form.end_time,
+              is_available:
+                form.is_available,
+            }),
+          });
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+              "Failed to save availability."
+          );
+        }
+
+        setSuccess(
+          editingId
+            ? "Availability updated successfully."
+            : "Availability added successfully."
+        );
+
+        resetForm();
+
+        await loadAvailability();
+      } catch (err) {
+        setError(
+          err.message ||
+            "Failed to save availability."
+        );
+      } finally {
+        setSaving(false);
+      }
+    };
+
+  // =====================================================
+  // DELETE
+  // =====================================================
+
+  const handleDelete =
+    async (id) => {
+      const confirmed =
+        window.confirm(
+          "Are you sure you want to delete this availability period?"
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        setDeletingId(id);
+        setError("");
+        setSuccess("");
+
+        const response =
+          await fetch(
+            `${API_BASE_URL}/counsellor-availability/slot/${id}`,
+            {
+              method: "DELETE",
+              headers,
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+              "Failed to delete availability."
+          );
+        }
+
+        setSuccess(
+          "Availability deleted successfully."
+        );
+
+        if (editingId === id) {
+          resetForm();
+        }
+
+        await loadAvailability();
+      } catch (err) {
+        setError(
+          err.message ||
             "Failed to delete availability."
         );
+      } finally {
+        setDeletingId(null);
       }
-
-      setSuccess(
-        "Availability deleted successfully."
-      );
-
-      if (
-        Number(editingId) ===
-        Number(id)
-      ) {
-        resetForm();
-      }
-
-      await fetchAvailability();
-    } catch (error) {
-      console.error(
-        "Delete availability error:",
-        error
-      );
-
-      setError(
-        error.message ||
-          "Unable to delete availability."
-      );
-    }
-  };
+    };
 
   // =====================================================
-  // TOGGLE AVAILABILITY
+  // GROUP BY DAY
   // =====================================================
 
-  const handleToggle = async (slot) => {
-    setError("");
-    setSuccess("");
-
-    const storedToken =
-      localStorage.getItem("token");
-
-    if (!storedToken) {
-      setError(
-        "Authentication token is missing. Please login again."
-      );
-
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `http://localhost:5000/api/counsellor-availability/slot/${slot.id}`,
-        {
-          method: "PUT",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            Authorization:
-              `Bearer ${storedToken}`,
-          },
-
-          body: JSON.stringify({
-            day_of_week:
-              slot.day_of_week,
-
-            start_time:
-              slot.start_time
-                ? slot.start_time.slice(0, 5)
-                : "",
-
-            end_time:
-              slot.end_time
-                ? slot.end_time.slice(0, 5)
-                : "",
-
-            is_available:
-              !slot.is_available,
-          }),
-        }
-      );
-
-      let data = {};
-
-      try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
-
-      // =================================================
-      // TOKEN ERROR
-      // =================================================
-
-      if (response.status === 401) {
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        localStorage.removeItem("loginData");
-
-        navigate("/login", {
-          replace: true,
-        });
-
-        return;
-      }
-
-      // =================================================
-      // ROLE ERROR
-      // =================================================
-
-      if (response.status === 403) {
-        throw new Error(
-          data.message ||
-            "You are not authorized to update this availability."
-        );
-      }
-
-      // =================================================
-      // OTHER ERROR
-      // =================================================
-
-      if (
-        !response.ok ||
-        !data.success
-      ) {
-        throw new Error(
-          data.message ||
-            "Failed to update availability."
-        );
-      }
-
-      setSuccess(
-        slot.is_available
-          ? "Availability disabled."
-          : "Availability enabled."
-      );
-
-      await fetchAvailability();
-    } catch (error) {
-      console.error(
-        "Toggle availability error:",
-        error
-      );
-
-      setError(
-        error.message ||
-          "Unable to update availability."
-      );
-    }
-  };
+  const groupedAvailability =
+    DAYS.map((day) => ({
+      day,
+      slots:
+        availability.filter(
+          (slot) =>
+            slot.day_of_week ===
+            day
+        ),
+    })).filter(
+      (group) =>
+        group.slots.length > 0
+    );
 
   // =====================================================
-  // FORMAT TIME
+  // AUTH CHECK
   // =====================================================
 
-  const formatTime = (time) => {
-    if (!time) {
-      return "";
-    }
-
-    const [
-      hours,
-      minutes,
-    ] = time.split(":");
-
-    const hourNumber =
-      Number(hours);
-
-    const suffix =
-      hourNumber >= 12
-        ? "PM"
-        : "AM";
-
-    const displayHour =
-      hourNumber % 12 || 12;
-
-    return `${displayHour}:${minutes} ${suffix}`;
-  };
-
-  // =====================================================
-  // LOADING
-  // =====================================================
-
-  if (loading) {
+  if (!token || !userId) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-5xl mb-4">
-            🕐
-          </div>
+      <div className="min-h-screen bg-slate-50">
+        <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6">
+          <div className="w-full rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-3xl">
+              🔐
+            </div>
 
-          <p className="text-lg text-gray-600">
-            Loading availability...
-          </p>
+            <h1 className="text-2xl font-bold text-slate-900">
+              Counsellor Login Required
+            </h1>
+
+            <p className="mt-3 text-slate-600">
+              Please login as a counsellor
+              to manage your counselling
+              availability.
+            </p>
+
+            <a
+              href="/login"
+              className="mt-7 inline-flex rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700"
+            >
+              Go to Login
+            </a>
+          </div>
         </div>
       </div>
     );
@@ -1015,432 +457,371 @@ function CounsellorAvailability() {
   // =====================================================
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-6">
-      <div className="max-w-5xl mx-auto">
-
-        {/* =================================================
-            HEADER
-        ================================================= */}
-
-        <div className="bg-white rounded-2xl shadow-md p-8 mb-6">
-
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                🕐 Counsellor Availability
-              </h1>
-
-              <p className="text-gray-500 mt-2">
-                Manage the days and times when students
-                can book counselling appointments.
-              </p>
+    <div className="min-h-screen bg-slate-50">
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {/* HEADER */}
+        <section className="mb-8 overflow-hidden rounded-3xl bg-gradient-to-r from-blue-700 to-blue-600 px-6 py-8 text-white shadow-lg sm:px-8">
+          <div className="max-w-3xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 text-sm font-medium backdrop-blur">
+              <span>🗓️</span>
+              Counsellor Schedule
             </div>
 
-            <button
-              onClick={() =>
-                navigate(
-                  "/counsellor-dashboard"
-                )
-              }
-              className="px-5 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
-            >
-              ← Dashboard
-            </button>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              Manage Your Availability
+            </h1>
 
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-blue-100 sm:text-base">
+              Set the days and times when
+              students can book counselling
+              appointments with you.
+            </p>
           </div>
+        </section>
 
-        </div>
-
-        {/* =================================================
-            ERROR MESSAGE
-        ================================================= */}
-
+        {/* ALERTS */}
         {error && (
-          <div className="bg-red-100 border border-red-300 text-red-700 rounded-lg p-4 mb-6">
-
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700">
             <div className="flex items-start gap-3">
-
-              <span className="text-xl">
-                ⚠️
-              </span>
-
-              <p>
-                {error}
-              </p>
-
+              <span>⚠️</span>
+              <span>{error}</span>
             </div>
-
           </div>
         )}
-
-        {/* =================================================
-            SUCCESS MESSAGE
-        ================================================= */}
 
         {success && (
-          <div className="bg-green-100 border border-green-300 text-green-700 rounded-lg p-4 mb-6">
-
+          <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-700">
             <div className="flex items-start gap-3">
-
-              <span className="text-xl">
-                ✅
-              </span>
-
-              <p>
-                {success}
-              </p>
-
+              <span>✓</span>
+              <span>{success}</span>
             </div>
-
           </div>
         )}
 
-        {/* =================================================
-            ADD / EDIT FORM
-        ================================================= */}
-
-        <div className="bg-white rounded-2xl shadow-md p-8 mb-8">
-
-          <div className="flex items-center justify-between mb-6">
-
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">
-
+        <div className="grid gap-8 lg:grid-cols-[380px_1fr]">
+          {/* FORM */}
+          <section className="h-fit rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-slate-900">
                 {editingId
-                  ? "✏️ Edit Availability"
-                  : "➕ Add Availability"}
-
+                  ? "Edit Availability"
+                  : "Add Availability"}
               </h2>
 
-              <p className="text-gray-500 mt-1">
-                Set your counselling working hours.
+              <p className="mt-1 text-sm text-slate-500">
+                Availability is divided into
+                30-minute booking slots.
               </p>
             </div>
 
-          </div>
-
-          <form onSubmit={handleSubmit}>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-5"
+            >
               {/* DAY */}
-
               <div>
-                <label className="block font-semibold text-gray-700 mb-2">
-                  Day *
+                <label
+                  htmlFor="day_of_week"
+                  className="mb-2 block text-sm font-semibold text-slate-700"
+                >
+                  Day
                 </label>
 
                 <select
+                  id="day_of_week"
                   name="day_of_week"
                   value={
-                    formData.day_of_week
+                    form.day_of_week
                   }
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg p-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={
+                    handleChange
+                  }
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                 >
-                  <option value="">
-                    Select day
-                  </option>
-
-                  <option value="Monday">
-                    Monday
-                  </option>
-
-                  <option value="Tuesday">
-                    Tuesday
-                  </option>
-
-                  <option value="Wednesday">
-                    Wednesday
-                  </option>
-
-                  <option value="Thursday">
-                    Thursday
-                  </option>
-
-                  <option value="Friday">
-                    Friday
-                  </option>
-
-                  <option value="Saturday">
-                    Saturday
-                  </option>
-
-                  <option value="Sunday">
-                    Sunday
-                  </option>
+                  {DAYS.map((day) => (
+                    <option
+                      key={day}
+                      value={day}
+                    >
+                      {day}
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              {/* START TIME */}
-
+              {/* START */}
               <div>
-                <label className="block font-semibold text-gray-700 mb-2">
-                  Start Time *
-                </label>
-
-                <input
-                  type="time"
-                  name="start_time"
-                  value={
-                    formData.start_time
-                  }
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* END TIME */}
-
-              <div>
-                <label className="block font-semibold text-gray-700 mb-2">
-                  End Time *
-                </label>
-
-                <input
-                  type="time"
-                  name="end_time"
-                  value={
-                    formData.end_time
-                  }
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-            </div>
-
-            {/* BUTTONS */}
-
-            <div className="flex flex-col sm:flex-row gap-3 mt-6">
-
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving
-                  ? "Saving..."
-                  : editingId
-                  ? "Update Availability"
-                  : "Add Availability"}
-              </button>
-
-              {editingId && (
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  disabled={saving}
-                  className="sm:w-40 bg-gray-200 text-gray-800 py-3 rounded-lg font-semibold hover:bg-gray-300 transition disabled:opacity-50"
+                <label
+                  htmlFor="start_time"
+                  className="mb-2 block text-sm font-semibold text-slate-700"
                 >
-                  Cancel Edit
-                </button>
-              )}
+                  Start Time
+                </label>
 
-            </div>
-
-          </form>
-
-        </div>
-
-        {/* =================================================
-            AVAILABILITY LIST
-        ================================================= */}
-
-        <div className="bg-white rounded-2xl shadow-md p-8">
-
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">
-                📅 My Availability
-              </h2>
-
-              <p className="text-gray-500 mt-1">
-                Students will use these timings to book appointments.
-              </p>
-            </div>
-
-            <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-semibold">
-              {availability.length}{" "}
-              {availability.length === 1
-                ? "Schedule"
-                : "Schedules"}
-            </div>
-
-          </div>
-
-          {availability.length === 0 ? (
-
-            <div className="text-center py-12">
-
-              <div className="text-6xl mb-4">
-                🗓️
+                <input
+                  id="start_time"
+                  name="start_time"
+                  type="time"
+                  step="1800"
+                  value={
+                    form.start_time
+                  }
+                  onChange={
+                    handleChange
+                  }
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                />
               </div>
 
-              <h3 className="text-xl font-bold text-gray-800">
-                No availability added
-              </h3>
+              {/* END */}
+              <div>
+                <label
+                  htmlFor="end_time"
+                  className="mb-2 block text-sm font-semibold text-slate-700"
+                >
+                  End Time
+                </label>
 
-              <p className="text-gray-500 mt-2">
-                Add your first working schedule above.
+                <input
+                  id="end_time"
+                  name="end_time"
+                  type="time"
+                  step="1800"
+                  value={
+                    form.end_time
+                  }
+                  onChange={
+                    handleChange
+                  }
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
+
+              {/* ACTIVE */}
+              <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">
+                    Available for booking
+                  </p>
+
+                  <p className="mt-1 text-xs text-slate-500">
+                    Students can book slots
+                    during this period.
+                  </p>
+                </div>
+
+                <input
+                  type="checkbox"
+                  name="is_available"
+                  checked={
+                    form.is_available
+                  }
+                  onChange={
+                    handleChange
+                  }
+                  className="h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+              </label>
+
+              {/* BUTTONS */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving
+                    ? "Saving..."
+                    : editingId
+                    ? "Update Availability"
+                    : "Add Availability"}
+                </button>
+
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={
+                      resetForm
+                    }
+                    className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {/* INFO */}
+            <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+              <p className="text-sm font-bold text-blue-900">
+                💡 Scheduling rule
               </p>
 
+              <p className="mt-1 text-xs leading-5 text-blue-700">
+                Availability must use
+                30-minute boundaries.
+                Example: 09:00–12:00 creates
+                six bookable slots.
+              </p>
+            </div>
+          </section>
+
+          {/* AVAILABILITY LIST */}
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  Your Availability
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  These periods are used to
+                  generate student booking
+                  slots.
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
+                {availability.length}{" "}
+                {availability.length ===
+                1
+                  ? "period"
+                  : "periods"}
+              </div>
             </div>
 
-          ) : (
+            {loading ? (
+              <div className="flex min-h-[300px] items-center justify-center">
+                <div className="text-center">
+                  <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
 
-            <div className="space-y-4">
+                  <p className="mt-4 text-sm text-slate-500">
+                    Loading availability...
+                  </p>
+                </div>
+              </div>
+            ) : availability.length ===
+              0 ? (
+              <div className="flex min-h-[300px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 text-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-3xl shadow-sm">
+                  🗓️
+                </div>
 
-              {availability.map(
-                (slot) => (
+                <h3 className="text-lg font-bold text-slate-900">
+                  No availability added
+                  yet
+                </h3>
 
-                  <div
-                    key={slot.id}
-                    className={`border rounded-xl p-5 transition ${
-                      slot.is_available
-                        ? "border-gray-200 bg-white"
-                        : "border-gray-200 bg-gray-100 opacity-70"
-                    }`}
-                  >
-
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-
-                      {/* SLOT INFORMATION */}
-
-                      <div className="flex items-center gap-4">
-
-                        <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center text-2xl">
-                          📅
-                        </div>
-
-                        <div>
-
-                          <h3 className="text-lg font-bold text-gray-900">
-                            {slot.day_of_week}
-                          </h3>
-
-                          <p className="text-gray-600">
-                            🕐{" "}
-                            {formatTime(
-                              slot.start_time
-                            )}{" "}
-                            –{" "}
-                            {formatTime(
-                              slot.end_time
-                            )}
-                          </p>
-
-                          <span
-                            className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold ${
-                              slot.is_available
-                                ? "bg-green-100 text-green-700"
-                                : "bg-gray-200 text-gray-600"
-                            }`}
-                          >
-                            {slot.is_available
-                              ? "Available"
-                              : "Disabled"}
-                          </span>
-
-                        </div>
-
+                <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+                  Add your working days and
+                  consultation hours using
+                  the form.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {groupedAvailability.map(
+                  (group) => (
+                    <div
+                      key={group.day}
+                      className="overflow-hidden rounded-2xl border border-slate-200"
+                    >
+                      <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+                        <h3 className="font-bold text-slate-900">
+                          {group.day}
+                        </h3>
                       </div>
 
-                      {/* ACTION BUTTONS */}
+                      <div className="divide-y divide-slate-100">
+                        {group.slots.map(
+                          (slot) => (
+                            <div
+                              key={
+                                slot.id
+                              }
+                              className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-lg">
+                                  🕐
+                                </div>
 
-                      <div className="flex flex-wrap gap-2">
+                                <div>
+                                  <p className="font-semibold text-slate-900">
+                                    {formatTime(
+                                      slot.start_time
+                                    )}{" "}
+                                    –{" "}
+                                    {formatTime(
+                                      slot.end_time
+                                    )}
+                                  </p>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleToggle(slot)
-                          }
-                          className={`px-4 py-2 rounded-lg font-semibold transition ${
-                            slot.is_available
-                              ? "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
-                              : "bg-green-100 text-green-700 hover:bg-green-200"
-                          }`}
-                        >
-                          {slot.is_available
-                            ? "Disable"
-                            : "Enable"}
-                        </button>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                                    <span
+                                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                        slot.is_available
+                                          ? "bg-emerald-50 text-emerald-700"
+                                          : "bg-slate-100 text-slate-600"
+                                      }`}
+                                    >
+                                      {slot.is_available
+                                        ? "Available"
+                                        : "Unavailable"}
+                                    </span>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleEdit(slot)
-                          }
-                          className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-semibold hover:bg-blue-200 transition"
-                        >
-                          ✏️ Edit
-                        </button>
+                                    <span className="text-xs text-slate-400">
+                                      30-minute
+                                      slots
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleDelete(
-                              slot.id
-                            )
-                          }
-                          className="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-semibold hover:bg-red-200 transition"
-                        >
-                          🗑️ Delete
-                        </button>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    startEdit(
+                                      slot
+                                    )
+                                  }
+                                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                                >
+                                  Edit
+                                </button>
 
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleDelete(
+                                      slot.id
+                                    )
+                                  }
+                                  disabled={
+                                    deletingId ===
+                                    slot.id
+                                  }
+                                  className="rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {deletingId ===
+                                  slot.id
+                                    ? "Deleting..."
+                                    : "Delete"}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        )}
                       </div>
-
                     </div>
-
-                  </div>
-                )
-              )}
-
-            </div>
-
-          )}
-
+                  )
+                )}
+              </div>
+            )}
+          </section>
         </div>
-
-        {/* =================================================
-            INFORMATION
-        ================================================= */}
-
-        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6 mt-6">
-
-          <h3 className="font-bold text-blue-900 text-lg mb-3">
-            💡 How availability works
-          </h3>
-
-          <ul className="space-y-2 text-blue-800">
-
-            <li>
-              • Add the days and times when you are available for counselling.
-            </li>
-
-            <li>
-              • You can add multiple schedules for the same day as long as they don't overlap.
-            </li>
-
-            <li>
-              • Each availability period must be at least 30 minutes.
-            </li>
-
-            <li>
-              • Disabled schedules will not be available for student bookings.
-            </li>
-
-            <li>
-              • Students will see available appointment slots based on these schedules.
-            </li>
-
-          </ul>
-
-        </div>
-
-      </div>
+      </main>
     </div>
   );
 }

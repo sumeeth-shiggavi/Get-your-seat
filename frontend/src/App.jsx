@@ -1,206 +1,404 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import React from "react";
 
-// =====================================================
-// COMPONENTS
-// =====================================================
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+} from "react-router-dom";
 
 import Navbar from "./components/Navbar";
-import ProtectedRoute from "./components/ProtectedRoute";
-
-// =====================================================
-// PUBLIC PAGES
-// =====================================================
 
 import Home from "./pages/Home";
-import About from "./pages/About";
 import Colleges from "./pages/Colleges";
-import Counsellors from "./pages/Counsellors";
-import Predictor from "./pages/Predictor";
 import CollegeDetails from "./pages/CollegeDetails";
+import Predictor from "./pages/Predictor";
+import Counsellors from "./pages/Counsellors";
+import Notices from "./pages/Notices";
+import Notifications from "./pages/Notifications";
+
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import CounsellorRegister from "./pages/CounsellorRegister";
 
-// =====================================================
-// STUDENT PAGES
-// =====================================================
+import CounsellorLogin from "./pages/CounsellorLogin";
+import CounsellorRegister from "./pages/CounsellorRegister";
 
 import CounsellorBooking from "./pages/CounsellorBooking";
 import MyAppointments from "./pages/MyAppointments";
 import Profile from "./pages/Profile";
-import Notifications from "./pages/Notifications";
-
-// =====================================================
-// COUNSELLOR PAGES
-// =====================================================
 
 import CounsellorDashboard from "./pages/CounsellorDashboard";
 import CounsellorProfile from "./pages/CounsellorProfile";
 import CounsellorAvailability from "./pages/CounsellorAvailability";
 import CounsellorNotices from "./pages/CounsellorNotices";
 
-function App() {
+// =====================================================
+// AUTH HELPERS
+// =====================================================
+
+const getStoredUser = () => {
+  try {
+    const storedUser =
+      localStorage.getItem("user");
+
+    if (!storedUser) {
+      return null;
+    }
+
+    return JSON.parse(storedUser);
+  } catch (error) {
+    console.error(
+      "Failed to read stored user:",
+      error
+    );
+
+    return null;
+  }
+};
+
+const getToken = () => {
+  return localStorage.getItem("token");
+};
+
+const isLoggedIn = () => {
+  return Boolean(
+    getToken() &&
+      getStoredUser()
+  );
+};
+
+// =====================================================
+// STUDENT PROTECTED ROUTE
+// =====================================================
+
+const StudentProtectedRoute = ({
+  children,
+}) => {
+  const user =
+    getStoredUser();
+
+  if (!isLoggedIn()) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+      />
+    );
+  }
+
+  if (
+    user?.role !==
+    "student"
+  ) {
+    return (
+      <Navigate
+        to="/"
+        replace
+      />
+    );
+  }
+
+  return children;
+};
+
+// =====================================================
+// COUNSELLOR PROTECTED ROUTE
+// =====================================================
+
+const CounsellorProtectedRoute = ({
+  children,
+}) => {
+  const user =
+    getStoredUser();
+
+  if (!isLoggedIn()) {
+    return (
+      <Navigate
+        to="/counsellor-login"
+        replace
+      />
+    );
+  }
+
+  if (
+    user?.role !==
+    "counsellor"
+  ) {
+    return (
+      <Navigate
+        to="/"
+        replace
+      />
+    );
+  }
+
+  return children;
+};
+
+// =====================================================
+// PUBLIC AUTH ROUTE
+// =====================================================
+
+const PublicAuthRoute = ({
+  children,
+}) => {
+  if (isLoggedIn()) {
+    const user =
+      getStoredUser();
+
+    if (
+      user?.role ===
+      "counsellor"
+    ) {
+      return (
+        <Navigate
+          to="/counsellor-dashboard"
+          replace
+        />
+      );
+    }
+
+    return (
+      <Navigate
+        to="/"
+        replace
+      />
+    );
+  }
+
+  return children;
+};
+
+// =====================================================
+// COUNSELLOR AUTH ROUTE
+// =====================================================
+
+const CounsellorAuthRoute = ({
+  children,
+}) => {
+  if (isLoggedIn()) {
+    const user =
+      getStoredUser();
+
+    if (
+      user?.role ===
+      "counsellor"
+    ) {
+      return (
+        <Navigate
+          to="/counsellor-dashboard"
+          replace
+        />
+      );
+    }
+
+    return (
+      <Navigate
+        to="/"
+        replace
+      />
+    );
+  }
+
+  return children;
+};
+
+// =====================================================
+// APP
+// =====================================================
+
+const App = () => {
   return (
     <BrowserRouter>
       <Navbar />
 
       <Routes>
-        {/* =====================================================
-            PUBLIC ROUTES
-        ===================================================== */}
+        {/* =========================================
+            PUBLIC PAGES
+        ========================================= */}
 
         <Route
           path="/"
-          element={<Home />}
-        />
-
-        <Route
-          path="/about"
-          element={<About />}
+          element={
+            <Home />
+          }
         />
 
         <Route
           path="/colleges"
-          element={<Colleges />}
+          element={
+            <Colleges />
+          }
+        />
+
+        <Route
+          path="/colleges/:id"
+          element={
+            <CollegeDetails />
+          }
+        />
+
+        <Route
+          path="/predictor"
+          element={
+            <Predictor />
+          }
         />
 
         <Route
           path="/counsellors"
-          element={<Counsellors />}
+          element={
+            <Counsellors />
+          }
         />
 
         <Route
-          path="/predictor/:exam"
-          element={<Predictor />}
+          path="/notices"
+          element={
+            <Notices />
+          }
         />
 
-        <Route
-          path="/college-details"
-          element={<CollegeDetails />}
-        />
+        {/* =========================================
+            STUDENT AUTH
+        ========================================= */}
 
         <Route
           path="/login"
-          element={<Login />}
+          element={
+            <PublicAuthRoute>
+              <Login />
+            </PublicAuthRoute>
+          }
         />
 
         <Route
           path="/register"
-          element={<Register />}
+          element={
+            <PublicAuthRoute>
+              <Register />
+            </PublicAuthRoute>
+          }
+        />
+
+        {/* =========================================
+            COUNSELLOR AUTH
+        ========================================= */}
+
+        <Route
+          path="/counsellor-login"
+          element={
+            <CounsellorAuthRoute>
+              <CounsellorLogin />
+            </CounsellorAuthRoute>
+          }
         />
 
         <Route
           path="/counsellor-register"
-          element={<CounsellorRegister />}
+          element={
+            <CounsellorAuthRoute>
+              <CounsellorRegister />
+            </CounsellorAuthRoute>
+          }
         />
 
-        {/* =====================================================
-            STUDENT PROTECTED ROUTES
-        ===================================================== */}
+        {/* =========================================
+            STUDENT PROTECTED PAGES
+        ========================================= */}
 
         <Route
-          path="/counsellor-booking"
+          path="/counsellors/:id/book"
           element={
-            <ProtectedRoute
-              allowedRoles={["student"]}
-            >
+            <StudentProtectedRoute>
               <CounsellorBooking />
-            </ProtectedRoute>
+            </StudentProtectedRoute>
           }
         />
 
         <Route
           path="/my-appointments"
           element={
-            <ProtectedRoute
-              allowedRoles={["student"]}
-            >
+            <StudentProtectedRoute>
               <MyAppointments />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute
-              allowedRoles={["student"]}
-            >
-              <Profile />
-            </ProtectedRoute>
+            </StudentProtectedRoute>
           }
         />
 
         <Route
           path="/notifications"
           element={
-            <ProtectedRoute
-              allowedRoles={["student"]}
-            >
+            <StudentProtectedRoute>
               <Notifications />
-            </ProtectedRoute>
+            </StudentProtectedRoute>
           }
         />
 
-        {/* =====================================================
-            COUNSELLOR PROTECTED ROUTES
-        ===================================================== */}
+        <Route
+          path="/profile"
+          element={
+            <StudentProtectedRoute>
+              <Profile />
+            </StudentProtectedRoute>
+          }
+        />
+
+        {/* =========================================
+            COUNSELLOR PROTECTED PAGES
+        ========================================= */}
 
         <Route
           path="/counsellor-dashboard"
           element={
-            <ProtectedRoute
-              allowedRoles={["counsellor"]}
-            >
+            <CounsellorProtectedRoute>
               <CounsellorDashboard />
-            </ProtectedRoute>
+            </CounsellorProtectedRoute>
           }
         />
 
         <Route
           path="/counsellor-profile"
           element={
-            <ProtectedRoute
-              allowedRoles={["counsellor"]}
-            >
+            <CounsellorProtectedRoute>
               <CounsellorProfile />
-            </ProtectedRoute>
+            </CounsellorProtectedRoute>
           }
         />
 
         <Route
           path="/counsellor-availability"
           element={
-            <ProtectedRoute
-              allowedRoles={["counsellor"]}
-            >
+            <CounsellorProtectedRoute>
               <CounsellorAvailability />
-            </ProtectedRoute>
+            </CounsellorProtectedRoute>
           }
         />
 
         <Route
           path="/counsellor-notices"
           element={
-            <ProtectedRoute
-              allowedRoles={["counsellor"]}
-            >
+            <CounsellorProtectedRoute>
               <CounsellorNotices />
-            </ProtectedRoute>
+            </CounsellorProtectedRoute>
           }
         />
 
-        {/* =====================================================
+        {/* =========================================
             FALLBACK
-        ===================================================== */}
+        ========================================= */}
 
         <Route
           path="*"
-          element={<Home />}
+          element={
+            <Navigate
+              to="/"
+              replace
+            />
+          }
         />
       </Routes>
     </BrowserRouter>
   );
-}
+};
 
 export default App;

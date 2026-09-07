@@ -1,361 +1,408 @@
-import {
-  useCallback,
+import React, {
   useEffect,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
 
-function Notifications() {
-  const navigate = useNavigate();
+import {
+  Link,
+  useNavigate,
+} from "react-router-dom";
 
-  const [notifications, setNotifications] =
-    useState([]);
+const API_BASE_URL =
+  "http://localhost:5000";
 
-  const [loading, setLoading] =
-    useState(true);
+// =====================================================
+// HELPERS
+// =====================================================
 
-  const [error, setError] =
-    useState("");
+const getStoredUser = () => {
+  try {
+    const storedUser =
+      localStorage.getItem("user");
 
-  const [refreshing, setRefreshing] =
-    useState(false);
+    if (!storedUser) {
+      return null;
+    }
 
-  // =====================================================
-  // GET AUTHENTICATION DATA
-  // =====================================================
+    return JSON.parse(storedUser);
+  } catch (error) {
+    console.error(
+      "Failed to read stored user:",
+      error
+    );
 
-  const getAuthData = () => {
-    try {
-      const storedUser =
-        localStorage.getItem("user");
+    return null;
+  }
+};
 
-      const token =
-        localStorage.getItem("token");
+const getToken = () => {
+  return localStorage.getItem(
+    "token"
+  );
+};
 
-      if (!storedUser || !token) {
-        return {
-          user: null,
-          token: null,
-        };
-      }
+const formatDateTime = (
+  value
+) => {
+  if (!value) {
+    return "";
+  }
 
-      const parsedUser =
-        JSON.parse(storedUser);
+  const date =
+    new Date(value);
 
-      const normalizedUser = {
-        ...parsedUser,
-        user_id:
-          parsedUser.user_id ??
-          parsedUser.id,
-        id:
-          parsedUser.id ??
-          parsedUser.user_id,
-      };
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return value;
+  }
 
-      return {
-        user: normalizedUser,
-        token,
-      };
-    } catch (error) {
-      console.error(
-        "Authentication data error:",
-        error
+  return date.toLocaleString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  );
+};
+
+// =====================================================
+// NOTIFICATIONS PAGE
+// =====================================================
+
+const Notifications = () => {
+  const navigate =
+    useNavigate();
+
+  const [
+    user,
+    setUser,
+  ] = useState(null);
+
+  const [
+    notifications,
+    setNotifications,
+  ] = useState([]);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+  const [
+    actionLoading,
+    setActionLoading,
+  ] = useState(null);
+
+  const [
+    error,
+    setError,
+  ] = useState("");
+
+  const [
+    success,
+    setSuccess,
+  ] = useState("");
+
+  // ===================================================
+  // AUTH CHECK
+  // ===================================================
+
+  useEffect(() => {
+    const storedUser =
+      getStoredUser();
+
+    const token =
+      getToken();
+
+    if (
+      !storedUser ||
+      !token
+    ) {
+      navigate(
+        "/login",
+        {
+          replace: true,
+        }
       );
 
-      return {
-        user: null,
-        token: null,
-      };
+      return;
     }
-  };
 
-  // =====================================================
-  // HANDLE UNAUTHORIZED
-  // =====================================================
+    if (
+      storedUser.role !==
+      "student"
+    ) {
+      navigate(
+        "/",
+        {
+          replace: true,
+        }
+      );
 
-  const handleUnauthorized = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("loginData");
+      return;
+    }
 
-    navigate("/login");
-  };
+    setUser(
+      storedUser
+    );
+  }, [navigate]);
 
-  // =====================================================
+  // ===================================================
   // FETCH NOTIFICATIONS
-  // =====================================================
+  // ===================================================
 
-  const fetchNotifications = useCallback(
-    async (showLoading = true) => {
+  const fetchNotifications =
+    async () => {
+      if (!user) {
+        return;
+      }
+
       try {
-        const { user, token } =
-          getAuthData();
-
-        if (
-          !user ||
-          !token ||
-          !user.user_id
-        ) {
-          setError(
-            "Please login to view notifications."
-          );
-
-          setLoading(false);
-          return;
-        }
-
-        if (showLoading) {
-          setLoading(true);
-        } else {
-          setRefreshing(true);
-        }
-
+        setLoading(true);
         setError("");
 
+        const token =
+          getToken();
+
         const userId =
+          user.id ||
           user.user_id;
 
-        const response = await fetch(
-          `http://localhost:5000/api/notifications/student/${userId}`,
-          {
-            method: "GET",
-            headers: {
-              "Content-Type":
-                "application/json",
-              Authorization:
-                `Bearer ${token}`,
-            },
-          }
-        );
-
-        const data =
-          await response.json();
-
-        if (response.status === 401) {
-          handleUnauthorized();
-          return;
-        }
-
-        if (response.status === 403) {
-          setError(
-            "You are not authorized to view notifications."
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/notifications/student/${userId}`,
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+              },
+            }
           );
-          return;
-        }
+
+        const result =
+          await response.json();
 
         if (
           !response.ok ||
-          !data.success
+          !result.success
         ) {
           throw new Error(
-            data.message ||
+            result.message ||
               "Failed to fetch notifications."
           );
         }
 
         setNotifications(
-          Array.isArray(data.data)
-            ? data.data
+          Array.isArray(
+            result.data
+          )
+            ? result.data
             : []
         );
-      } catch (error) {
+      } catch (err) {
         console.error(
-          "Notifications error:",
-          error
+          "Fetch notifications error:",
+          err
         );
 
         setError(
-          error.message ||
-            "Failed to load notifications."
+          err.message ||
+            "Unable to load notifications."
         );
       } finally {
         setLoading(false);
-        setRefreshing(false);
       }
-    },
-    []
-  );
-
-  // =====================================================
-  // INITIAL LOAD
-  // =====================================================
+    };
 
   useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
-
-  // =====================================================
-  // MARK ONE NOTIFICATION AS READ
-  // =====================================================
-
-  const markAsRead = async (
-    notificationId
-  ) => {
-    const { user, token } =
-      getAuthData();
-
-    if (!user || !token) {
-      setError(
-        "Please login to update notifications."
-      );
-      return;
+    if (user) {
+      fetchNotifications();
     }
+  }, [user]);
 
-    try {
-      setError("");
+  // ===================================================
+  // MARK ONE AS READ
+  // ===================================================
 
-      const response = await fetch(
-        `http://localhost:5000/api/notifications/${notificationId}/read`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type":
-              "application/json",
-            Authorization:
-              `Bearer ${token}`,
-          },
+  const markAsRead =
+    async (
+      notificationId
+    ) => {
+      try {
+        setActionLoading(
+          notificationId
+        );
+
+        setError("");
+        setSuccess("");
+
+        const token =
+          getToken();
+
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/notifications/${notificationId}/read`,
+            {
+              method:
+                "PATCH",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+              },
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !result.success
+        ) {
+          throw new Error(
+            result.message ||
+              "Failed to mark notification as read."
+          );
         }
-      );
 
-      const data =
-        await response.json();
-
-      if (response.status === 401) {
-        handleUnauthorized();
-        return;
-      }
-
-      if (response.status === 403) {
-        setError(
-          "You are not authorized to update this notification."
+        setNotifications(
+          (previous) =>
+            previous.map(
+              (
+                notification
+              ) =>
+                notification.id ===
+                notificationId
+                  ? {
+                      ...notification,
+                      is_read:
+                        true,
+                    }
+                  : notification
+            )
         );
-        return;
-      }
 
-      if (
-        !response.ok ||
-        !data.success
-      ) {
-        throw new Error(
-          data.message ||
-            "Failed to mark notification as read."
+        setSuccess(
+          "Notification marked as read."
         );
-      }
 
-      setNotifications(
-        (previousNotifications) =>
-          previousNotifications.map(
-            (notification) =>
-              notification.id ===
-              notificationId
-                ? {
-                    ...notification,
-                    is_read: true,
-                  }
-                : notification
+        window.dispatchEvent(
+          new Event(
+            "notificationsChanged"
           )
-      );
-    } catch (error) {
-      console.error(
-        "Mark notification error:",
-        error
-      );
+        );
+      } catch (err) {
+        console.error(
+          "Mark notification read error:",
+          err
+        );
 
-      setError(
-        error.message ||
-          "Failed to mark notification as read."
-      );
-    }
-  };
+        setError(
+          err.message ||
+            "Unable to update notification."
+        );
+      } finally {
+        setActionLoading(
+          null
+        );
+      }
+    };
 
-  // =====================================================
-  // MARK ALL NOTIFICATIONS AS READ
-  // =====================================================
+  // ===================================================
+  // MARK ALL AS READ
+  // ===================================================
 
-  const markAllAsRead = async () => {
-    const { user, token } =
-      getAuthData();
+  const markAllAsRead =
+    async () => {
+      try {
+        setActionLoading(
+          "all"
+        );
 
-    if (
-      !user ||
-      !token ||
-      !user.user_id
-    ) {
-      setError(
-        "Please login to update notifications."
-      );
-      return;
-    }
+        setError("");
+        setSuccess("");
 
-    try {
-      setError("");
+        const token =
+          getToken();
 
-      const userId =
-        user.user_id;
+        const userId =
+          user.id ||
+          user.user_id;
 
-      const response = await fetch(
-        `http://localhost:5000/api/notifications/student/${userId}/read-all`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type":
-              "application/json",
-            Authorization:
-              `Bearer ${token}`,
-          },
+        const response =
+          await fetch(
+            `${API_BASE_URL}/api/notifications/student/${userId}/read-all`,
+            {
+              method:
+                "PATCH",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+              },
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !result.success
+        ) {
+          throw new Error(
+            result.message ||
+              "Failed to mark notifications as read."
+          );
         }
-      );
 
-      const data =
-        await response.json();
-
-      if (response.status === 401) {
-        handleUnauthorized();
-        return;
-      }
-
-      if (response.status === 403) {
-        setError(
-          "You are not authorized to update notifications."
+        setNotifications(
+          (previous) =>
+            previous.map(
+              (
+                notification
+              ) => ({
+                ...notification,
+                is_read:
+                  true,
+              })
+            )
         );
-        return;
-      }
 
-      if (
-        !response.ok ||
-        !data.success
-      ) {
-        throw new Error(
-          data.message ||
-            "Failed to mark all notifications as read."
+        setSuccess(
+          "All notifications marked as read."
         );
-      }
 
-      setNotifications(
-        (previousNotifications) =>
-          previousNotifications.map(
-            (notification) => ({
-              ...notification,
-              is_read: true,
-            })
+        window.dispatchEvent(
+          new Event(
+            "notificationsChanged"
           )
-      );
-    } catch (error) {
-      console.error(
-        "Mark all notifications error:",
-        error
-      );
+        );
+      } catch (err) {
+        console.error(
+          "Mark all notifications error:",
+          err
+        );
 
-      setError(
-        error.message ||
-          "Failed to mark notifications as read."
-      );
-    }
-  };
+        setError(
+          err.message ||
+            "Unable to update notifications."
+        );
+      } finally {
+        setActionLoading(
+          null
+        );
+      }
+    };
 
-  // =====================================================
-  // UNREAD COUNT
-  // =====================================================
+  // ===================================================
+  // COUNTS
+  // ===================================================
 
   const unreadCount =
     notifications.filter(
@@ -363,297 +410,618 @@ function Notifications() {
         !notification.is_read
     ).length;
 
-  // =====================================================
-  // FORMAT DATE
-  // =====================================================
-
-  const formatDate = (date) => {
-    if (!date) {
-      return "";
-    }
-
-    const formattedDate =
-      new Date(date);
-
-    if (
-      Number.isNaN(
-        formattedDate.getTime()
-      )
-    ) {
-      return "";
-    }
-
-    return formattedDate.toLocaleString(
-      "en-IN",
-      {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }
-    );
-  };
-
-  // =====================================================
-  // LOADING SCREEN
-  // =====================================================
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-
-        <div className="text-center">
-
-          <div className="text-5xl mb-4">
-            🔔
-          </div>
-
-          <p className="text-lg text-gray-600">
-            Loading notifications...
-          </p>
-
-        </div>
-
-      </div>
-    );
-  }
-
-  // =====================================================
-  // MAIN UI
-  // =====================================================
+  // ===================================================
+  // RENDER
+  // ===================================================
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10">
+    <div
+      className="page"
+      style={{
+        minHeight:
+          "100vh",
+        background:
+          "#f8fafc",
+      }}
+    >
+      <div className="container">
+        {/* =========================================
+            HEADER
+        ========================================= */}
 
-      <div className="max-w-4xl mx-auto px-6">
-
-        {/* HEADER */}
-
-        <div className="bg-white rounded-2xl shadow-md p-6 mb-6">
-
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-
+        <section
+          style={{
+            padding:
+              "2.5rem 0 1.5rem",
+          }}
+        >
+          <div
+            style={{
+              display:
+                "flex",
+              justifyContent:
+                "space-between",
+              alignItems:
+                "flex-start",
+              gap:
+                "1rem",
+              flexWrap:
+                "wrap",
+            }}
+          >
             <div>
+              <div
+                style={{
+                  display:
+                    "flex",
+                  alignItems:
+                    "center",
+                  gap:
+                    "0.5rem",
+                  marginBottom:
+                    "0.6rem",
+                }}
+              >
+                <Link
+                  to="/"
+                  style={{
+                    color:
+                      "#2563eb",
+                    textDecoration:
+                      "none",
+                    fontSize:
+                      "0.85rem",
+                    fontWeight:
+                      600,
+                  }}
+                >
+                  Home
+                </Link>
 
-              <h1 className="text-3xl font-bold text-gray-800">
-                🔔 Notifications
+                <span
+                  style={{
+                    color:
+                      "#cbd5e1",
+                  }}
+                >
+                  /
+                </span>
+
+                <span
+                  style={{
+                    color:
+                      "#64748b",
+                    fontSize:
+                      "0.85rem",
+                  }}
+                >
+                  Notifications
+                </span>
+              </div>
+
+              <h1
+                style={{
+                  margin:
+                    0,
+                  fontSize:
+                    "clamp(1.8rem, 4vw, 2.5rem)",
+                  color:
+                    "#0f172a",
+                }}
+              >
+                Notifications
               </h1>
 
-              <p className="text-gray-500 mt-2">
-                Stay updated with your counselling activities.
-              </p>
-
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap">
-
-              {/* REFRESH */}
-
-              <button
-                onClick={() =>
-                  fetchNotifications(false)
-                }
-                disabled={refreshing}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition disabled:opacity-50"
+              <p
+                style={{
+                  margin:
+                    "0.5rem 0 0",
+                  color:
+                    "#64748b",
+                  lineHeight:
+                    1.6,
+                }}
               >
-                {refreshing
-                  ? "Refreshing..."
-                  : "↻ Refresh"}
+                Stay updated about your counselling
+                appointments and important activities.
+              </p>
+            </div>
+
+            {unreadCount >
+              0 && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={
+                  markAllAsRead
+                }
+                disabled={
+                  actionLoading ===
+                  "all"
+                }
+              >
+                {actionLoading ===
+                "all"
+                  ? "Updating..."
+                  : "Mark All as Read"}
               </button>
-
-              {/* MARK ALL */}
-
-              {unreadCount > 0 && (
-                <button
-                  onClick={
-                    markAllAsRead
-                  }
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
-                >
-                  Mark All as Read
-                </button>
-              )}
-
-            </div>
-
-          </div>
-
-          {/* UNREAD COUNT */}
-
-          {unreadCount > 0 && (
-            <div className="mt-4 inline-flex items-center bg-blue-50 text-blue-700 px-4 py-2 rounded-lg text-sm font-semibold">
-              🔵 {unreadCount} unread notification
-              {unreadCount !== 1
-                ? "s"
-                : ""}
-            </div>
-          )}
-
-          {/* ALL READ */}
-
-          {unreadCount === 0 &&
-            notifications.length > 0 && (
-              <div className="mt-4 inline-flex items-center bg-green-50 text-green-700 px-4 py-2 rounded-lg text-sm font-semibold">
-                ✅ All notifications are read
-              </div>
             )}
+          </div>
+        </section>
 
-        </div>
-
-        {/* ERROR */}
+        {/* =========================================
+            ALERTS
+        ========================================= */}
 
         {error && (
-          <div className="bg-red-100 border border-red-200 text-red-700 p-4 rounded-xl mb-6">
-
-            <div className="flex items-center justify-between gap-4">
-
-              <p className="font-semibold">
-                {error}
-              </p>
-
-              <button
-                onClick={() =>
-                  fetchNotifications(false)
-                }
-                className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition"
-              >
-                Retry
-              </button>
-
-            </div>
-
+          <div
+            style={{
+              marginBottom:
+                "1rem",
+              padding:
+                "0.9rem 1rem",
+              borderRadius:
+                "10px",
+              background:
+                "#fef2f2",
+              border:
+                "1px solid #fecaca",
+              color:
+                "#b91c1c",
+              fontWeight:
+                500,
+            }}
+          >
+            {error}
           </div>
         )}
 
-        {/* EMPTY STATE */}
+        {success && (
+          <div
+            style={{
+              marginBottom:
+                "1rem",
+              padding:
+                "0.9rem 1rem",
+              borderRadius:
+                "10px",
+              background:
+                "#f0fdf4",
+              border:
+                "1px solid #bbf7d0",
+              color:
+                "#15803d",
+              fontWeight:
+                500,
+            }}
+          >
+            {success}
+          </div>
+        )}
 
-        {!error &&
-          notifications.length === 0 && (
-            <div className="bg-white rounded-2xl shadow-md p-12 text-center">
+        {/* =========================================
+            SUMMARY
+        ========================================= */}
 
-              <div className="text-6xl mb-5">
-                🔕
+        {!loading && (
+          <div
+            className="card"
+            style={{
+              padding:
+                "1rem 1.25rem",
+              marginBottom:
+                "1.25rem",
+              display:
+                "flex",
+              alignItems:
+                "center",
+              gap:
+                "0.75rem",
+            }}
+          >
+            <div
+              style={{
+                width:
+                  "42px",
+                height:
+                  "42px",
+                borderRadius:
+                  "10px",
+                background:
+                  unreadCount >
+                  0
+                    ? "#eff6ff"
+                    : "#f1f5f9",
+                display:
+                  "flex",
+                alignItems:
+                  "center",
+                justifyContent:
+                  "center",
+                fontSize:
+                  "1.1rem",
+              }}
+            >
+              🔔
+            </div>
+
+            <div>
+              <div
+                style={{
+                  fontWeight:
+                    700,
+                  color:
+                    "#0f172a",
+                }}
+              >
+                {unreadCount ===
+                0
+                  ? "You're all caught up"
+                  : `${unreadCount} unread notification${
+                      unreadCount !==
+                      1
+                        ? "s"
+                        : ""
+                    }`}
               </div>
 
-              <h2 className="text-2xl font-bold text-gray-800">
-                No Notifications
-              </h2>
-
-              <p className="text-gray-500 mt-2">
-                You're all caught up!
-              </p>
-
-              <button
-                onClick={() =>
-                  fetchNotifications(false)
-                }
-                className="mt-6 px-5 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+              <div
+                style={{
+                  color:
+                    "#64748b",
+                  fontSize:
+                    "0.82rem",
+                  marginTop:
+                    "0.15rem",
+                }}
               >
-                ↻ Check Again
-              </button>
-
+                {notifications.length} total notification
+                {notifications.length !==
+                1
+                  ? "s"
+                  : ""}
+              </div>
             </div>
-          )}
-
-        {/* NOTIFICATIONS LIST */}
-
-        {notifications.length > 0 && (
-          <div className="space-y-4">
-
-            {notifications.map(
-              (notification) => (
-                <div
-                  key={notification.id}
-                  className={`bg-white rounded-2xl shadow-md p-5 border-l-4 transition hover:shadow-lg ${
-                    notification.is_read
-                      ? "border-gray-300"
-                      : "border-blue-600"
-                  }`}
-                >
-
-                  <div className="flex flex-col sm:flex-row items-start justify-between gap-5">
-
-                    <div className="flex gap-4">
-
-                      {/* ICON */}
-
-                      <div
-                        className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-xl ${
-                          notification.is_read
-                            ? "bg-gray-100"
-                            : "bg-blue-100"
-                        }`}
-                      >
-                        🔔
-                      </div>
-
-                      {/* CONTENT */}
-
-                      <div>
-
-                        <div className="flex items-center gap-2 flex-wrap">
-
-                          <h2
-                            className={`text-lg font-bold ${
-                              notification.is_read
-                                ? "text-gray-700"
-                                : "text-gray-900"
-                            }`}
-                          >
-                            {notification.title}
-                          </h2>
-
-                          {!notification.is_read && (
-                            <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                              NEW
-                            </span>
-                          )}
-
-                        </div>
-
-                        <p className="text-gray-600 mt-2 leading-relaxed">
-                          {
-                            notification.message
-                          }
-                        </p>
-
-                        <p className="text-sm text-gray-400 mt-3">
-                          🕐{" "}
-                          {formatDate(
-                            notification.created_at
-                          )}
-                        </p>
-
-                      </div>
-
-                    </div>
-
-                    {/* MARK AS READ */}
-
-                    {!notification.is_read && (
-                      <button
-                        onClick={() =>
-                          markAsRead(
-                            notification.id
-                          )
-                        }
-                        className="whitespace-nowrap px-4 py-2 text-sm bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
-                      >
-                        ✓ Mark as Read
-                      </button>
-                    )}
-
-                  </div>
-
-                </div>
-              )
-            )}
-
           </div>
         )}
 
-      </div>
+        {/* =========================================
+            NOTIFICATION LIST
+        ========================================= */}
 
+        {loading ? (
+          <div
+            className="card"
+            style={{
+              padding:
+                "3.5rem 1.5rem",
+              textAlign:
+                "center",
+            }}
+          >
+            <div
+              style={{
+                fontSize:
+                  "2rem",
+                marginBottom:
+                  "0.75rem",
+              }}
+            >
+              🔔
+            </div>
+
+            <h3
+              style={{
+                margin:
+                  "0 0 0.4rem",
+                color:
+                  "#0f172a",
+              }}
+            >
+              Loading notifications...
+            </h3>
+
+            <p
+              style={{
+                margin:
+                  0,
+                color:
+                  "#64748b",
+              }}
+            >
+              Please wait.
+            </p>
+          </div>
+        ) : notifications.length ===
+          0 ? (
+          <div
+            className="card"
+            style={{
+              padding:
+                "4rem 1.5rem",
+              textAlign:
+                "center",
+              marginBottom:
+                "3rem",
+            }}
+          >
+            <div
+              style={{
+                width:
+                  "64px",
+                height:
+                  "64px",
+                borderRadius:
+                  "50%",
+                background:
+                  "#eff6ff",
+                display:
+                  "flex",
+                alignItems:
+                  "center",
+                justifyContent:
+                  "center",
+                margin:
+                  "0 auto 1rem",
+                fontSize:
+                  "1.6rem",
+              }}
+            >
+              🔔
+            </div>
+
+            <h2
+              style={{
+                margin:
+                  "0 0 0.5rem",
+                color:
+                  "#0f172a",
+                fontSize:
+                  "1.3rem",
+              }}
+            >
+              No notifications yet
+            </h2>
+
+            <p
+              style={{
+                margin:
+                  "0 0 1.25rem",
+                color:
+                  "#64748b",
+                lineHeight:
+                  1.6,
+              }}
+            >
+              We'll notify you when there are updates
+              about your counselling appointments.
+            </p>
+
+            <Link
+              to="/counsellors"
+              className="btn btn-primary"
+              style={{
+                textDecoration:
+                  "none",
+              }}
+            >
+              Find a Counsellor
+            </Link>
+          </div>
+        ) : (
+          <div
+            style={{
+              display:
+                "flex",
+              flexDirection:
+                "column",
+              gap:
+                "0.8rem",
+              marginBottom:
+                "3rem",
+            }}
+          >
+            {notifications.map(
+              (
+                notification
+              ) => {
+                const unread =
+                  !notification.is_read;
+
+                return (
+                  <div
+                    key={
+                      notification.id
+                    }
+                    className="card"
+                    style={{
+                      padding:
+                        "1.15rem 1.25rem",
+                      borderLeft:
+                        unread
+                          ? "4px solid #2563eb"
+                          : "4px solid #e2e8f0",
+                      background:
+                        unread
+                          ? "#ffffff"
+                          : "#f8fafc",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display:
+                          "flex",
+                        alignItems:
+                          "flex-start",
+                        justifyContent:
+                          "space-between",
+                        gap:
+                          "1rem",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display:
+                            "flex",
+                          alignItems:
+                            "flex-start",
+                          gap:
+                            "0.9rem",
+                          flex:
+                            1,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width:
+                              "42px",
+                            height:
+                              "42px",
+                            minWidth:
+                              "42px",
+                            borderRadius:
+                              "10px",
+                            background:
+                              unread
+                                ? "#eff6ff"
+                                : "#f1f5f9",
+                            display:
+                              "flex",
+                            alignItems:
+                              "center",
+                            justifyContent:
+                              "center",
+                            fontSize:
+                              "1rem",
+                          }}
+                        >
+                          {unread
+                            ? "🔔"
+                            : "✓"}
+                        </div>
+
+                        <div
+                          style={{
+                            flex:
+                              1,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display:
+                                "flex",
+                              alignItems:
+                                "center",
+                              flexWrap:
+                                "wrap",
+                              gap:
+                                "0.5rem",
+                              marginBottom:
+                                "0.35rem",
+                            }}
+                          >
+                            <h3
+                              style={{
+                                margin:
+                                  0,
+                                color:
+                                  "#0f172a",
+                                fontSize:
+                                  "1rem",
+                              }}
+                            >
+                              {
+                                notification.title
+                              }
+                            </h3>
+
+                            {unread && (
+                              <span
+                                className="badge"
+                                style={{
+                                  background:
+                                    "#eff6ff",
+                                  color:
+                                    "#1d4ed8",
+                                  fontSize:
+                                    "0.68rem",
+                                }}
+                              >
+                                New
+                              </span>
+                            )}
+                          </div>
+
+                          <p
+                            style={{
+                              margin:
+                                "0 0 0.5rem",
+                              color:
+                                "#64748b",
+                              lineHeight:
+                                1.6,
+                              fontSize:
+                                "0.9rem",
+                            }}
+                          >
+                            {
+                              notification.message
+                            }
+                          </p>
+
+                          <div
+                            style={{
+                              color:
+                                "#94a3b8",
+                              fontSize:
+                                "0.75rem",
+                            }}
+                          >
+                            {formatDateTime(
+                              notification.created_at
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {unread && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() =>
+                            markAsRead(
+                              notification.id
+                            )
+                          }
+                          disabled={
+                            actionLoading ===
+                            notification.id
+                          }
+                          style={{
+                            whiteSpace:
+                              "nowrap",
+                            fontSize:
+                              "0.78rem",
+                            padding:
+                              "0.5rem 0.7rem",
+                          }}
+                        >
+                          {actionLoading ===
+                          notification.id
+                            ? "Updating..."
+                            : "Mark Read"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
-}
+};
 
 export default Notifications;
