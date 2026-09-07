@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+import { useNavigate } from "react-router-dom";
 
 function Notifications() {
-  const user = JSON.parse(
-    localStorage.getItem("user")
-  );
-
-  const userId = user?.id;
+  const navigate = useNavigate();
 
   const [notifications, setNotifications] =
     useState([]);
@@ -19,10 +20,82 @@ function Notifications() {
   const [refreshing, setRefreshing] =
     useState(false);
 
+  // =====================================================
+  // GET AUTHENTICATION DATA
+  // =====================================================
+
+  const getAuthData = () => {
+    try {
+      const storedUser =
+        localStorage.getItem("user");
+
+      const token =
+        localStorage.getItem("token");
+
+      if (!storedUser || !token) {
+        return {
+          user: null,
+          token: null,
+        };
+      }
+
+      const parsedUser =
+        JSON.parse(storedUser);
+
+      const normalizedUser = {
+        ...parsedUser,
+        user_id:
+          parsedUser.user_id ??
+          parsedUser.id,
+        id:
+          parsedUser.id ??
+          parsedUser.user_id,
+      };
+
+      return {
+        user: normalizedUser,
+        token,
+      };
+    } catch (error) {
+      console.error(
+        "Authentication data error:",
+        error
+      );
+
+      return {
+        user: null,
+        token: null,
+      };
+    }
+  };
+
+  // =====================================================
+  // HANDLE UNAUTHORIZED
+  // =====================================================
+
+  const handleUnauthorized = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("loginData");
+
+    navigate("/login");
+  };
+
+  // =====================================================
+  // FETCH NOTIFICATIONS
+  // =====================================================
+
   const fetchNotifications = useCallback(
     async (showLoading = true) => {
       try {
-        if (!userId) {
+        const { user, token } =
+          getAuthData();
+
+        if (
+          !user ||
+          !token ||
+          !user.user_id
+        ) {
           setError(
             "Please login to view notifications."
           );
@@ -39,14 +112,41 @@ function Notifications() {
 
         setError("");
 
+        const userId =
+          user.user_id;
+
         const response = await fetch(
-          `http://localhost:5000/api/notifications/student/${userId}`
+          `http://localhost:5000/api/notifications/student/${userId}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type":
+                "application/json",
+              Authorization:
+                `Bearer ${token}`,
+            },
+          }
         );
 
         const data =
           await response.json();
 
-        if (!response.ok) {
+        if (response.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+
+        if (response.status === 403) {
+          setError(
+            "You are not authorized to view notifications."
+          );
+          return;
+        }
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
           throw new Error(
             data.message ||
               "Failed to fetch notifications."
@@ -54,7 +154,9 @@ function Notifications() {
         }
 
         setNotifications(
-          data.data || []
+          Array.isArray(data.data)
+            ? data.data
+            : []
         );
       } catch (error) {
         console.error(
@@ -71,42 +173,87 @@ function Notifications() {
         setRefreshing(false);
       }
     },
-    [userId]
+    []
   );
+
+  // =====================================================
+  // INITIAL LOAD
+  // =====================================================
 
   useEffect(() => {
     fetchNotifications();
   }, [fetchNotifications]);
 
-  const markAsRead = async (id) => {
+  // =====================================================
+  // MARK ONE NOTIFICATION AS READ
+  // =====================================================
+
+  const markAsRead = async (
+    notificationId
+  ) => {
+    const { user, token } =
+      getAuthData();
+
+    if (!user || !token) {
+      setError(
+        "Please login to update notifications."
+      );
+      return;
+    }
+
     try {
+      setError("");
+
       const response = await fetch(
-        `http://localhost:5000/api/notifications/${id}/read`,
+        `http://localhost:5000/api/notifications/${notificationId}/read`,
         {
           method: "PATCH",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization:
+              `Bearer ${token}`,
+          },
         }
       );
 
       const data =
         await response.json();
 
-      if (!response.ok) {
+      if (response.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      if (response.status === 403) {
+        setError(
+          "You are not authorized to update this notification."
+        );
+        return;
+      }
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
         throw new Error(
           data.message ||
             "Failed to mark notification as read."
         );
       }
 
-      setNotifications((previous) =>
-        previous.map(
-          (notification) =>
-            notification.id === id
-              ? {
-                  ...notification,
-                  is_read: true,
-                }
-              : notification
-        )
+      setNotifications(
+        (previousNotifications) =>
+          previousNotifications.map(
+            (notification) =>
+              notification.id ===
+              notificationId
+                ? {
+                    ...notification,
+                    is_read: true,
+                  }
+                : notification
+          )
       );
     } catch (error) {
       console.error(
@@ -121,36 +268,77 @@ function Notifications() {
     }
   };
 
+  // =====================================================
+  // MARK ALL NOTIFICATIONS AS READ
+  // =====================================================
+
   const markAllAsRead = async () => {
+    const { user, token } =
+      getAuthData();
+
+    if (
+      !user ||
+      !token ||
+      !user.user_id
+    ) {
+      setError(
+        "Please login to update notifications."
+      );
+      return;
+    }
+
     try {
-      if (!userId) {
-        return;
-      }
+      setError("");
+
+      const userId =
+        user.user_id;
 
       const response = await fetch(
         `http://localhost:5000/api/notifications/student/${userId}/read-all`,
         {
           method: "PATCH",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization:
+              `Bearer ${token}`,
+          },
         }
       );
 
       const data =
         await response.json();
 
-      if (!response.ok) {
+      if (response.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      if (response.status === 403) {
+        setError(
+          "You are not authorized to update notifications."
+        );
+        return;
+      }
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
         throw new Error(
           data.message ||
             "Failed to mark all notifications as read."
         );
       }
 
-      setNotifications((previous) =>
-        previous.map(
-          (notification) => ({
-            ...notification,
-            is_read: true,
-          })
-        )
+      setNotifications(
+        (previousNotifications) =>
+          previousNotifications.map(
+            (notification) => ({
+              ...notification,
+              is_read: true,
+            })
+          )
       );
     } catch (error) {
       console.error(
@@ -165,18 +353,37 @@ function Notifications() {
     }
   };
 
+  // =====================================================
+  // UNREAD COUNT
+  // =====================================================
+
   const unreadCount =
     notifications.filter(
       (notification) =>
         !notification.is_read
     ).length;
 
+  // =====================================================
+  // FORMAT DATE
+  // =====================================================
+
   const formatDate = (date) => {
     if (!date) {
       return "";
     }
 
-    return new Date(date).toLocaleString(
+    const formattedDate =
+      new Date(date);
+
+    if (
+      Number.isNaN(
+        formattedDate.getTime()
+      )
+    ) {
+      return "";
+    }
+
+    return formattedDate.toLocaleString(
       "en-IN",
       {
         dateStyle: "medium",
@@ -185,9 +392,14 @@ function Notifications() {
     );
   };
 
+  // =====================================================
+  // LOADING SCREEN
+  // =====================================================
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+
         <div className="text-center">
 
           <div className="text-5xl mb-4">
@@ -199,16 +411,22 @@ function Notifications() {
           </p>
 
         </div>
+
       </div>
     );
   }
+
+  // =====================================================
+  // MAIN UI
+  // =====================================================
 
   return (
     <div className="min-h-screen bg-gray-50 py-10">
 
       <div className="max-w-4xl mx-auto px-6">
 
-        {/* Header */}
+        {/* HEADER */}
+
         <div className="bg-white rounded-2xl shadow-md p-6 mb-6">
 
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -225,7 +443,9 @@ function Notifications() {
 
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+
+              {/* REFRESH */}
 
               <button
                 onClick={() =>
@@ -239,9 +459,13 @@ function Notifications() {
                   : "↻ Refresh"}
               </button>
 
+              {/* MARK ALL */}
+
               {unreadCount > 0 && (
                 <button
-                  onClick={markAllAsRead}
+                  onClick={
+                    markAllAsRead
+                  }
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
                 >
                   Mark All as Read
@@ -252,6 +476,8 @@ function Notifications() {
 
           </div>
 
+          {/* UNREAD COUNT */}
+
           {unreadCount > 0 && (
             <div className="mt-4 inline-flex items-center bg-blue-50 text-blue-700 px-4 py-2 rounded-lg text-sm font-semibold">
               🔵 {unreadCount} unread notification
@@ -260,6 +486,8 @@ function Notifications() {
                 : ""}
             </div>
           )}
+
+          {/* ALL READ */}
 
           {unreadCount === 0 &&
             notifications.length > 0 && (
@@ -270,7 +498,8 @@ function Notifications() {
 
         </div>
 
-        {/* Error */}
+        {/* ERROR */}
+
         {error && (
           <div className="bg-red-100 border border-red-200 text-red-700 p-4 rounded-xl mb-6">
 
@@ -294,7 +523,8 @@ function Notifications() {
           </div>
         )}
 
-        {/* Empty State */}
+        {/* EMPTY STATE */}
+
         {!error &&
           notifications.length === 0 && (
             <div className="bg-white rounded-2xl shadow-md p-12 text-center">
@@ -323,7 +553,8 @@ function Notifications() {
             </div>
           )}
 
-        {/* Notifications */}
+        {/* NOTIFICATIONS LIST */}
+
         {notifications.length > 0 && (
           <div className="space-y-4">
 
@@ -342,6 +573,8 @@ function Notifications() {
 
                     <div className="flex gap-4">
 
+                      {/* ICON */}
+
                       <div
                         className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-xl ${
                           notification.is_read
@@ -351,6 +584,8 @@ function Notifications() {
                       >
                         🔔
                       </div>
+
+                      {/* CONTENT */}
 
                       <div>
 
@@ -375,7 +610,9 @@ function Notifications() {
                         </div>
 
                         <p className="text-gray-600 mt-2 leading-relaxed">
-                          {notification.message}
+                          {
+                            notification.message
+                          }
                         </p>
 
                         <p className="text-sm text-gray-400 mt-3">
@@ -388,6 +625,8 @@ function Notifications() {
                       </div>
 
                     </div>
+
+                    {/* MARK AS READ */}
 
                     {!notification.is_read && (
                       <button
