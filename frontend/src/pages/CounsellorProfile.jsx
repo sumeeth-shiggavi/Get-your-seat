@@ -4,8 +4,6 @@ import { useNavigate } from "react-router-dom";
 function CounsellorProfile() {
   const navigate = useNavigate();
 
-  const user = JSON.parse(localStorage.getItem("user"));
-
   const [formData, setFormData] = useState({
     full_name: "",
     email: "",
@@ -24,12 +22,78 @@ function CounsellorProfile() {
   const [success, setSuccess] = useState("");
 
   // =====================================================
+  // GET STORED USER
+  // =====================================================
+
+  const getStoredUser = () => {
+    try {
+      const storedUser =
+        localStorage.getItem("user");
+
+      const token =
+        localStorage.getItem("token");
+
+      if (!storedUser || !token) {
+        return {
+          user: null,
+          token: null,
+        };
+      }
+
+      const parsedUser =
+        JSON.parse(storedUser);
+
+      const normalizedUser = {
+        ...parsedUser,
+        user_id:
+          parsedUser.user_id ??
+          parsedUser.id,
+        id:
+          parsedUser.id ??
+          parsedUser.user_id,
+      };
+
+      return {
+        user: normalizedUser,
+        token,
+      };
+    } catch (err) {
+      console.error(
+        "Stored user parsing error:",
+        err
+      );
+
+      return {
+        user: null,
+        token: null,
+      };
+    }
+  };
+
+  // =====================================================
+  // LOGOUT / SESSION EXPIRY
+  // =====================================================
+
+  const handleSessionExpired = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("loginData");
+
+    navigate("/login");
+  };
+
+  // =====================================================
   // FETCH PROFILE
   // =====================================================
 
   const fetchProfile = async () => {
     try {
-      if (!user || user.role !== "counsellor") {
+      setError("");
+
+      const { user, token } =
+        getStoredUser();
+
+      if (!user || !token) {
         setError(
           "Please login as a counsellor to access this page."
         );
@@ -38,11 +102,50 @@ function CounsellorProfile() {
         return;
       }
 
+      if (user.role !== "counsellor") {
+        setError(
+          "You are not authorized to access the counsellor profile."
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      if (!user.user_id) {
+        setError(
+          "Unable to identify your account. Please login again."
+        );
+
+        setLoading(false);
+        return;
+      }
+
       const response = await fetch(
-        `http://localhost:5000/api/counsellor-profile/${user.id}`
+        `http://localhost:5000/api/counsellor-profile/${user.user_id}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
+
+      if (response.status === 401) {
+        handleSessionExpired();
+        return;
+      }
+
+      if (response.status === 403) {
+        setError(
+          "You are not authorized to view this profile."
+        );
+
+        setLoading(false);
+        return;
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(
@@ -54,28 +157,38 @@ function CounsellorProfile() {
       const profile = data.data;
 
       setFormData({
-        full_name: profile.full_name || "",
-        email: profile.email || "",
-        phone: profile.phone || "",
+        full_name:
+          profile.full_name || "",
+
+        email:
+          profile.email || "",
+
+        phone:
+          profile.phone || "",
+
         specialization:
           profile.specialization || "",
+
         experience_years:
           profile.experience_years ?? "",
+
         qualification:
           profile.qualification || "",
-        bio: profile.bio || "",
+
+        bio:
+          profile.bio || "",
+
         consultation_fee:
           profile.consultation_fee ?? "",
       });
-
-    } catch (error) {
+    } catch (err) {
       console.error(
         "Counsellor profile error:",
-        error
+        err
       );
 
       setError(
-        error.message ||
+        err.message ||
           "Unable to load profile."
       );
     } finally {
@@ -88,7 +201,7 @@ function CounsellorProfile() {
   }, []);
 
   // =====================================================
-  // HANDLE CHANGE
+  // HANDLE INPUT CHANGE
   // =====================================================
 
   const handleChange = (e) => {
@@ -113,12 +226,40 @@ function CounsellorProfile() {
     setError("");
     setSuccess("");
 
+    const { user, token } =
+      getStoredUser();
+
+    if (!user || !token) {
+      setError(
+        "Please login as a counsellor to update your profile."
+      );
+      return;
+    }
+
+    if (user.role !== "counsellor") {
+      setError(
+        "You are not authorized to update this profile."
+      );
+      return;
+    }
+
+    if (!user.user_id) {
+      setError(
+        "Unable to identify your account. Please login again."
+      );
+      return;
+    }
+
+    // -------------------------------------------------
+    // Required field validation
+    // -------------------------------------------------
+
     if (
-      !formData.full_name ||
-      !formData.phone ||
+      !formData.full_name.trim() ||
+      !formData.phone.trim() ||
       !formData.specialization ||
       formData.experience_years === "" ||
-      !formData.qualification
+      !formData.qualification.trim()
     ) {
       setError(
         "Please fill all required fields."
@@ -126,6 +267,10 @@ function CounsellorProfile() {
 
       return;
     }
+
+    // -------------------------------------------------
+    // Experience validation
+    // -------------------------------------------------
 
     if (
       Number(formData.experience_years) < 0
@@ -136,6 +281,10 @@ function CounsellorProfile() {
 
       return;
     }
+
+    // -------------------------------------------------
+    // Consultation fee validation
+    // -------------------------------------------------
 
     if (
       formData.consultation_fee !== "" &&
@@ -152,20 +301,24 @@ function CounsellorProfile() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/counsellor-profile/${user.id}`,
+        `http://localhost:5000/api/counsellor-profile/${user.user_id}`,
         {
           method: "PUT",
 
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
+
+            Authorization:
+              `Bearer ${token}`,
           },
 
           body: JSON.stringify({
             full_name:
-              formData.full_name,
+              formData.full_name.trim(),
 
             phone:
-              formData.phone,
+              formData.phone.trim(),
 
             specialization:
               formData.specialization,
@@ -176,10 +329,10 @@ function CounsellorProfile() {
               ),
 
             qualification:
-              formData.qualification,
+              formData.qualification.trim(),
 
             bio:
-              formData.bio,
+              formData.bio.trim(),
 
             consultation_fee:
               formData.consultation_fee === ""
@@ -191,7 +344,25 @@ function CounsellorProfile() {
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
+
+      // -------------------------------------------------
+      // Authentication errors
+      // -------------------------------------------------
+
+      if (response.status === 401) {
+        handleSessionExpired();
+        return;
+      }
+
+      if (response.status === 403) {
+        setError(
+          "You are not authorized to update this profile."
+        );
+
+        return;
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(
@@ -200,32 +371,103 @@ function CounsellorProfile() {
         );
       }
 
-      // Update local user name
-      if (data.data?.user) {
-        localStorage.setItem(
-          "user",
-          JSON.stringify({
-            ...user,
-            ...data.data.user,
-          })
-        );
+      // -------------------------------------------------
+      // Update form with returned data
+      // -------------------------------------------------
+
+      if (data.data) {
+        const updatedProfile =
+          data.data;
+
+        setFormData({
+          full_name:
+            updatedProfile.full_name ||
+            "",
+
+          email:
+            updatedProfile.email ||
+            formData.email,
+
+          phone:
+            updatedProfile.phone ||
+            "",
+
+          specialization:
+            updatedProfile.specialization ||
+            "",
+
+          experience_years:
+            updatedProfile.experience_years ??
+            "",
+
+          qualification:
+            updatedProfile.qualification ||
+            "",
+
+          bio:
+            updatedProfile.bio ||
+            "",
+
+          consultation_fee:
+            updatedProfile.consultation_fee ??
+            "",
+        });
+
+        // -------------------------------------------------
+        // Update stored user information
+        // -------------------------------------------------
+
+        const storedUser =
+          getStoredUser().user;
+
+        if (storedUser) {
+          const returnedUser =
+            updatedProfile.user || {};
+
+          const updatedUser = {
+            ...storedUser,
+            ...returnedUser,
+            full_name:
+              updatedProfile.full_name ||
+              returnedUser.full_name ||
+              storedUser.full_name,
+            phone:
+              updatedProfile.phone ||
+              returnedUser.phone ||
+              storedUser.phone,
+            user_id:
+              storedUser.user_id,
+            id:
+              storedUser.id ??
+              storedUser.user_id,
+          };
+
+          localStorage.setItem(
+            "user",
+            JSON.stringify(updatedUser)
+          );
+
+          localStorage.setItem(
+            "loginData",
+            JSON.stringify({
+              user: updatedUser,
+              token,
+            })
+          );
+        }
       }
 
       setSuccess(
         "Profile updated successfully."
       );
-
-      // Reload profile data
-      await fetchProfile();
-
-    } catch (error) {
+    } catch (err) {
       console.error(
         "Update counsellor profile error:",
-        error
+        err
       );
 
       setError(
-        error.message ||
+        err.message ||
           "Unable to update profile."
       );
     } finally {
@@ -256,7 +498,9 @@ function CounsellorProfile() {
 
       <div className="max-w-4xl mx-auto">
 
-        {/* Header */}
+        {/* =================================================
+            HEADER
+        ================================================= */}
 
         <div className="bg-white rounded-2xl shadow-md p-8 mb-6">
 
@@ -289,8 +533,9 @@ function CounsellorProfile() {
 
         </div>
 
-
-        {/* Error */}
+        {/* =================================================
+            ERROR
+        ================================================= */}
 
         {error && (
           <div className="bg-red-100 border border-red-300 text-red-700 rounded-lg p-4 mb-6">
@@ -298,8 +543,9 @@ function CounsellorProfile() {
           </div>
         )}
 
-
-        {/* Success */}
+        {/* =================================================
+            SUCCESS
+        ================================================= */}
 
         {success && (
           <div className="bg-green-100 border border-green-300 text-green-700 rounded-lg p-4 mb-6">
@@ -307,14 +553,17 @@ function CounsellorProfile() {
           </div>
         )}
 
-
-        {/* Profile Form */}
+        {/* =================================================
+            PROFILE FORM
+        ================================================= */}
 
         <div className="bg-white rounded-2xl shadow-md p-8">
 
           <form onSubmit={handleSubmit}>
 
-            {/* Personal Information */}
+            {/* =================================================
+                PERSONAL INFORMATION
+            ================================================= */}
 
             <h2 className="text-xl font-bold text-gray-800 mb-5">
               Personal Information
@@ -333,14 +582,16 @@ function CounsellorProfile() {
                 <input
                   type="text"
                   name="full_name"
-                  value={formData.full_name}
+                  value={
+                    formData.full_name
+                  }
                   onChange={handleChange}
                   placeholder="Enter full name"
+                  required
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 
               </div>
-
 
               {/* Email */}
 
@@ -352,7 +603,9 @@ function CounsellorProfile() {
 
                 <input
                   type="email"
-                  value={formData.email}
+                  value={
+                    formData.email
+                  }
                   disabled
                   className="w-full border border-gray-300 rounded-lg p-3 bg-gray-100 text-gray-500 cursor-not-allowed"
                 />
@@ -362,7 +615,6 @@ function CounsellorProfile() {
                 </p>
 
               </div>
-
 
               {/* Phone */}
 
@@ -375,9 +627,12 @@ function CounsellorProfile() {
                 <input
                   type="tel"
                   name="phone"
-                  value={formData.phone}
+                  value={
+                    formData.phone
+                  }
                   onChange={handleChange}
                   placeholder="Enter phone number"
+                  required
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 
@@ -385,8 +640,9 @@ function CounsellorProfile() {
 
             </div>
 
-
-            {/* Professional Information */}
+            {/* =================================================
+                PROFESSIONAL INFORMATION
+            ================================================= */}
 
             <h2 className="text-xl font-bold text-gray-800 mt-8 mb-5">
               Professional Information
@@ -404,8 +660,11 @@ function CounsellorProfile() {
 
                 <select
                   name="specialization"
-                  value={formData.specialization}
+                  value={
+                    formData.specialization
+                  }
                   onChange={handleChange}
+                  required
                   className="w-full border border-gray-300 rounded-lg p-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
 
@@ -437,7 +696,6 @@ function CounsellorProfile() {
 
               </div>
 
-
               {/* Experience */}
 
               <div>
@@ -449,14 +707,16 @@ function CounsellorProfile() {
                 <input
                   type="number"
                   name="experience_years"
-                  value={formData.experience_years}
+                  value={
+                    formData.experience_years
+                  }
                   onChange={handleChange}
                   min="0"
+                  required
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 
               </div>
-
 
               {/* Qualification */}
 
@@ -469,14 +729,16 @@ function CounsellorProfile() {
                 <input
                   type="text"
                   name="qualification"
-                  value={formData.qualification}
+                  value={
+                    formData.qualification
+                  }
                   onChange={handleChange}
                   placeholder="Example: M.Tech, Ph.D."
+                  required
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 
               </div>
-
 
               {/* Consultation Fee */}
 
@@ -489,7 +751,9 @@ function CounsellorProfile() {
                 <input
                   type="number"
                   name="consultation_fee"
-                  value={formData.consultation_fee}
+                  value={
+                    formData.consultation_fee
+                  }
                   onChange={handleChange}
                   min="0"
                   placeholder="Example: 500"
@@ -500,8 +764,9 @@ function CounsellorProfile() {
 
             </div>
 
-
-            {/* Bio */}
+            {/* =================================================
+                BIO
+            ================================================= */}
 
             <div className="mt-5">
 
@@ -511,22 +776,29 @@ function CounsellorProfile() {
 
               <textarea
                 name="bio"
-                value={formData.bio}
+                value={
+                  formData.bio
+                }
                 onChange={handleChange}
                 rows="6"
                 placeholder="Tell students about your experience and expertise..."
                 className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
 
+              <p className="text-xs text-gray-500 mt-2">
+                This information helps students understand your expertise.
+              </p>
+
             </div>
 
-
-            {/* Save Button */}
+            {/* =================================================
+                SAVE BUTTON
+            ================================================= */}
 
             <button
               type="submit"
               disabled={saving}
-              className="w-full mt-8 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
+              className="w-full mt-8 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving
                 ? "Saving Changes..."

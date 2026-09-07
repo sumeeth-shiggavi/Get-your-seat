@@ -75,6 +75,7 @@ function CounsellorBooking() {
 
     date.setHours(hours);
     date.setMinutes(minutes);
+    date.setSeconds(0);
 
     return date.toLocaleTimeString(
       "en-IN",
@@ -143,14 +144,19 @@ function CounsellorBooking() {
         return;
       }
 
-      if (!parsedUser.user_id) {
+      const userId =
+        parsedUser.user_id ??
+        parsedUser.id;
+
+      if (!userId) {
         console.error(
-          "Student user_id is missing:",
+          "Student user ID is missing:",
           parsedUser
         );
 
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("loginData");
 
         navigate("/login", {
           replace: true,
@@ -159,7 +165,15 @@ function CounsellorBooking() {
         return;
       }
 
-      setUser(parsedUser);
+      const normalizedUser = {
+        ...parsedUser,
+        user_id: userId,
+        id:
+          parsedUser.id ??
+          userId,
+      };
+
+      setUser(normalizedUser);
       setToken(storedToken);
     } catch (error) {
       console.error(
@@ -169,6 +183,7 @@ function CounsellorBooking() {
 
       localStorage.removeItem("user");
       localStorage.removeItem("token");
+      localStorage.removeItem("loginData");
 
       navigate("/login", {
         replace: true,
@@ -297,9 +312,14 @@ function CounsellorBooking() {
         data = {};
       }
 
+      // -------------------------------------------------
+      // TOKEN ERROR
+      // -------------------------------------------------
+
       if (response.status === 401) {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("loginData");
 
         navigate("/login", {
           replace: true,
@@ -308,6 +328,10 @@ function CounsellorBooking() {
         return;
       }
 
+      // -------------------------------------------------
+      // ROLE ERROR
+      // -------------------------------------------------
+
       if (response.status === 403) {
         throw new Error(
           data.message ||
@@ -315,12 +339,20 @@ function CounsellorBooking() {
         );
       }
 
+      // -------------------------------------------------
+      // OTHER ERROR
+      // -------------------------------------------------
+
       if (!response.ok) {
         throw new Error(
           data.message ||
             "Failed to fetch available slots."
         );
       }
+
+      // -------------------------------------------------
+      // STORE SLOTS
+      // -------------------------------------------------
 
       setSlots(
         data.data?.slots || []
@@ -358,7 +390,11 @@ function CounsellorBooking() {
     setSelectedDate(
       getTodayDate()
     );
-  }, [user, token, counsellorId]);
+  }, [
+    user,
+    token,
+    counsellorId,
+  ]);
 
   // =====================================================
   // FETCH SLOTS WHEN DATE CHANGES
@@ -427,6 +463,7 @@ function CounsellorBooking() {
       } catch {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("loginData");
 
         navigate("/login", {
           replace: true,
@@ -434,6 +471,10 @@ function CounsellorBooking() {
 
         return;
       }
+
+      // -------------------------------------------------
+      // CHECK ROLE
+      // -------------------------------------------------
 
       if (
         !loggedInUser ||
@@ -446,6 +487,10 @@ function CounsellorBooking() {
         return;
       }
 
+      // -------------------------------------------------
+      // CHECK DATE
+      // -------------------------------------------------
+
       if (!selectedDate) {
         setError(
           "Please select a date."
@@ -453,6 +498,10 @@ function CounsellorBooking() {
 
         return;
       }
+
+      // -------------------------------------------------
+      // CHECK SLOT
+      // -------------------------------------------------
 
       if (!selectedSlot) {
         setError(
@@ -470,6 +519,10 @@ function CounsellorBooking() {
         return;
       }
 
+      // -------------------------------------------------
+      // CHECK COUNSELLOR
+      // -------------------------------------------------
+
       if (!counsellor) {
         setError(
           "Counsellor information is not available."
@@ -483,8 +536,9 @@ function CounsellorBooking() {
       // =================================================
       // IMPORTANT
       //
-      // student_id is NOT trusted from the frontend.
-      // The backend gets the authenticated student from
+      // student_id is NOT sent from frontend.
+      //
+      // Backend gets the authenticated student from
       // req.user.id in the JWT.
       // =================================================
 
@@ -532,6 +586,7 @@ function CounsellorBooking() {
       if (response.status === 401) {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("loginData");
 
         navigate("/login", {
           replace: true,
@@ -603,7 +658,11 @@ function CounsellorBooking() {
 
       // Refresh slots in case
       // another student booked it
-      await fetchSlots();
+      try {
+        await fetchSlots();
+      } catch {
+        // Ignore refresh error.
+      }
     } finally {
       setBooking(false);
     }
@@ -616,9 +675,7 @@ function CounsellorBooking() {
   if (loadingCounsellor) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-
         <div className="text-center">
-
           <div className="text-5xl mb-4">
             👨‍⚕️
           </div>
@@ -626,9 +683,7 @@ function CounsellorBooking() {
           <p className="text-lg text-gray-600">
             Loading counsellor details...
           </p>
-
         </div>
-
       </div>
     );
   }
@@ -639,13 +694,13 @@ function CounsellorBooking() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-10">
-
       <div className="max-w-6xl mx-auto px-6">
 
-        {/* Header */}
+        {/* =================================================
+            BACK BUTTON
+        ================================================= */}
 
         <div className="mb-6">
-
           <button
             onClick={() =>
               navigate("/counsellors")
@@ -654,42 +709,41 @@ function CounsellorBooking() {
           >
             ← Back to Counsellors
           </button>
-
         </div>
 
-        {/* Error */}
+        {/* =================================================
+            ERROR
+        ================================================= */}
 
         {error && (
           <div className="bg-red-100 border border-red-200 text-red-700 rounded-xl p-4 mb-6">
-
             <p className="font-semibold">
               ⚠️ {error}
             </p>
-
           </div>
         )}
 
-        {/* Success */}
+        {/* =================================================
+            SUCCESS
+        ================================================= */}
 
         {success && (
           <div className="bg-green-100 border border-green-200 text-green-700 rounded-xl p-4 mb-6">
-
             <p className="font-semibold">
               ✅ {success}
             </p>
-
           </div>
         )}
 
-        {/* Counsellor Card */}
+        {/* =================================================
+            COUNSELLOR CARD
+        ================================================= */}
 
         {counsellor && (
           <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
 
               <div>
-
                 <p className="text-sm text-blue-600 font-semibold uppercase tracking-wide">
                   Counselling With
                 </p>
@@ -714,11 +768,9 @@ function CounsellorBooking() {
                     0}{" "}
                   years experience
                 </p>
-
               </div>
 
               <div className="bg-blue-50 rounded-xl p-5 text-center">
-
                 <p className="text-sm text-gray-500">
                   Consultation Fee
                 </p>
@@ -728,29 +780,26 @@ function CounsellorBooking() {
                   {counsellor.consultation_fee ||
                     0}
                 </p>
-
               </div>
-
             </div>
-
           </div>
         )}
 
-        {/* Date Selection */}
+        {/* =================================================
+            DATE SELECTION
+        ================================================= */}
 
         <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-
           <h2 className="text-2xl font-bold text-gray-800">
             📅 Select Appointment Date
           </h2>
 
           <p className="text-gray-500 mt-1">
-            Choose a date to see available
-            counselling slots.
+            Choose a date to see the counsellor's
+            available slots.
           </p>
 
           <div className="mt-5 max-w-md">
-
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Appointment Date
             </label>
@@ -766,45 +815,39 @@ function CounsellorBooking() {
               }
               className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
             />
-
           </div>
 
           {selectedDate && (
             <div className="mt-4 bg-blue-50 rounded-xl p-4">
-
               <p className="text-blue-800 font-semibold">
                 📅{" "}
                 {formatDate(
                   selectedDate
                 )}
               </p>
-
             </div>
           )}
-
         </div>
 
-        {/* Slots */}
+        {/* =================================================
+            AVAILABLE SLOTS
+        ================================================= */}
 
         <div className="bg-white rounded-2xl shadow-md p-6">
 
           <div className="mb-6">
-
             <h2 className="text-2xl font-bold text-gray-800">
               🕐 Available Time Slots
             </h2>
 
             <p className="text-gray-500 mt-1">
-              Select one available 30-minute
-              counselling slot.
+              Select one available counselling
+              slot.
             </p>
-
           </div>
 
           {loadingSlots ? (
-
             <div className="text-center py-10">
-
               <div className="text-4xl mb-3">
                 🕐
               </div>
@@ -812,13 +855,9 @@ function CounsellorBooking() {
               <p className="text-gray-600">
                 Loading available slots...
               </p>
-
             </div>
-
           ) : slots.length === 0 ? (
-
             <div className="text-center py-12 bg-gray-50 rounded-xl">
-
               <div className="text-5xl mb-4">
                 📭
               </div>
@@ -835,16 +874,12 @@ function CounsellorBooking() {
               <p className="text-gray-500 mt-1">
                 Please select another date.
               </p>
-
             </div>
-
           ) : (
-
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
 
               {slots.map(
                 (slot, index) => {
-
                   const isSelected =
                     selectedSlot &&
                     selectedSlot.start_time ===
@@ -857,7 +892,8 @@ function CounsellorBooking() {
                       key={`${slot.start_time}-${index}`}
                       type="button"
                       disabled={
-                        !slot.is_available
+                        !slot.is_available ||
+                        booking
                       }
                       onClick={() =>
                         handleSlotSelect(
@@ -872,8 +908,7 @@ function CounsellorBooking() {
                           : "bg-white border-green-200 text-gray-800 hover:border-blue-500 hover:bg-blue-50"
                       }`}
                     >
-
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
 
                         <span className="font-bold text-lg">
                           🕐{" "}
@@ -900,7 +935,6 @@ function CounsellorBooking() {
                             ✓ SELECTED
                           </span>
                         )}
-
                       </div>
 
                       <p
@@ -920,23 +954,21 @@ function CounsellorBooking() {
                           slot.end_time
                         )}
                       </p>
-
                     </button>
                   );
                 }
               )}
-
             </div>
-
           )}
 
-          {/* Booking Summary */}
+          {/* =================================================
+              BOOKING SUMMARY
+          ================================================= */}
 
           {selectedSlot && (
             <div className="mt-8 border-t pt-6">
 
               <div className="bg-blue-50 rounded-xl p-5">
-
                 <h3 className="text-lg font-bold text-blue-800">
                   📋 Booking Summary
                 </h3>
@@ -980,9 +1012,7 @@ function CounsellorBooking() {
                     {counsellor?.consultation_fee ||
                       0}
                   </p>
-
                 </div>
-
               </div>
 
               <div className="flex flex-col sm:flex-row justify-end gap-3 mt-5">
@@ -1010,16 +1040,11 @@ function CounsellorBooking() {
                     ? "Booking..."
                     : "✅ Confirm Appointment"}
                 </button>
-
               </div>
-
             </div>
           )}
-
         </div>
-
       </div>
-
     </div>
   );
 }

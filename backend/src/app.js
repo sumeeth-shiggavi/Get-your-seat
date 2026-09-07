@@ -16,23 +16,37 @@ const counsellorAuthRoutes = require("./routes/counsellorAuthRoutes");
 const counsellorProfileRoutes = require("./routes/counsellorProfileRoutes");
 const counsellorAvailabilityRoutes = require("./routes/counsellorAvailabilityRoutes");
 const counsellorSlotsRoutes = require("./routes/counsellorSlotsRoutes");
+const noticeRoutes = require("./routes/noticeRoutes");
 
 const app = express();
 
 app.use(cors());
+
 app.use(express.json());
 
-/* ================================
-   API ROUTES
-================================ */
+// =====================================================
+// PUBLIC / GENERAL ROUTES
+// =====================================================
 
-app.use("/api/exams", examRoutes);
+app.use(
+  "/api/exams",
+  examRoutes
+);
 
-app.use("/api/colleges", collegeRoutes);
+app.use(
+  "/api/colleges",
+  collegeRoutes
+);
 
-app.use("/api/predict", predictorRoutes);
+app.use(
+  "/api/predict",
+  predictorRoutes
+);
 
-app.use("/api/auth", authRoutes);
+app.use(
+  "/api/auth",
+  authRoutes
+);
 
 app.use(
   "/api/college-details",
@@ -43,6 +57,10 @@ app.use(
   "/api/counsellors",
   counsellorRoutes
 );
+
+// =====================================================
+// STUDENT ROUTES
+// =====================================================
 
 app.use(
   "/api/appointments",
@@ -63,6 +81,10 @@ app.use(
   "/api/notifications",
   notificationRoutes
 );
+
+// =====================================================
+// COUNSELLOR ROUTES
+// =====================================================
 
 app.use(
   "/api/counsellor-dashboard",
@@ -89,14 +111,24 @@ app.use(
   counsellorSlotsRoutes
 );
 
-/* ================================
-   ROOT ROUTE
-================================ */
+// =====================================================
+// NOTICE BOARD
+// =====================================================
+
+app.use(
+  "/api/notices",
+  noticeRoutes
+);
+
+// =====================================================
+// ROOT
+// =====================================================
 
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "GET YOUR SEAT backend is running",
+    message:
+      "GET YOUR SEAT backend is running",
   });
 });
 

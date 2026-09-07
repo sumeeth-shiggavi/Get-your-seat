@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 function Profile() {
+  const navigate = useNavigate();
+
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -23,21 +26,69 @@ function Profile() {
   const [passwordError, setPasswordError] =
     useState("");
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
+  // =====================================================
+  // GET LOGGED-IN USER
+  // =====================================================
+
+  const getStoredUser = () => {
+    try {
+      const storedUser =
+        localStorage.getItem("user");
+
+      const token =
+        localStorage.getItem("token");
+
+      if (!storedUser || !token) {
+        return {
+          user: null,
+          token: null,
+        };
+      }
+
+      const parsedUser =
+        JSON.parse(storedUser);
+
+      const normalizedUser = {
+        ...parsedUser,
+        user_id:
+          parsedUser.user_id ??
+          parsedUser.id,
+        id:
+          parsedUser.id ??
+          parsedUser.user_id,
+      };
+
+      return {
+        user: normalizedUser,
+        token,
+      };
+    } catch (err) {
+      console.error(
+        "Stored user parsing error:",
+        err
+      );
+
+      return {
+        user: null,
+        token: null,
+      };
+    }
+  };
 
   // =====================================================
   // FETCH PROFILE
   // =====================================================
 
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
   const fetchProfile = async () => {
     try {
-      const user = JSON.parse(
-        localStorage.getItem("user")
-      );
+      const { user, token } =
+        getStoredUser();
 
-      if (!user) {
+      if (!user || !token) {
         setError(
           "Please login to view your profile."
         );
@@ -45,11 +96,44 @@ function Profile() {
         return;
       }
 
+      if (!user.user_id) {
+        setError(
+          "Unable to identify your account. Please login again."
+        );
+        setLoading(false);
+        return;
+      }
+
       const response = await fetch(
-        `http://localhost:5000/api/profile/${user.id}`
+        `http://localhost:5000/api/profile/${user.user_id}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
+
+      if (response.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("loginData");
+
+        navigate("/login");
+
+        return;
+      }
+
+      if (response.status === 403) {
+        setError(
+          "You are not authorized to view this profile."
+        );
+        setLoading(false);
+        return;
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(
@@ -94,13 +178,19 @@ function Profile() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const user = JSON.parse(
-      localStorage.getItem("user")
-    );
+    const { user, token } =
+      getStoredUser();
 
-    if (!user) {
+    if (!user || !token) {
       setError(
         "Please login to update your profile."
+      );
+      return;
+    }
+
+    if (!user.user_id) {
+      setError(
+        "Unable to identify your account. Please login again."
       );
       return;
     }
@@ -111,20 +201,27 @@ function Profile() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/profile/${user.id}`,
+        `http://localhost:5000/api/profile/${user.user_id}`,
         {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            full_name: profile.full_name,
-            phone: profile.phone,
+            full_name:
+              profile.full_name,
+            phone:
+              profile.phone,
             date_of_birth:
-              profile.date_of_birth || null,
-            gender: profile.gender,
-            city: profile.city,
-            state: profile.state,
+              profile.date_of_birth ||
+              null,
+            gender:
+              profile.gender,
+            city:
+              profile.city,
+            state:
+              profile.state,
             preferred_course:
               profile.preferred_course,
             preferred_location:
@@ -133,7 +230,25 @@ function Profile() {
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
+
+      if (response.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("loginData");
+
+        navigate("/login");
+
+        return;
+      }
+
+      if (response.status === 403) {
+        setError(
+          "You are not authorized to update this profile."
+        );
+        return;
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(
@@ -144,19 +259,29 @@ function Profile() {
 
       setProfile(data.data);
 
-      // Update navbar user information
-      const storedUser = JSON.parse(
-        localStorage.getItem("user")
-      );
+      // Update stored user information
+      const storedUser =
+        getStoredUser().user;
 
       if (storedUser) {
+        const updatedUser = {
+          ...storedUser,
+          full_name:
+            data.data.full_name,
+          phone:
+            data.data.phone,
+        };
+
         localStorage.setItem(
           "user",
+          JSON.stringify(updatedUser)
+        );
+
+        localStorage.setItem(
+          "loginData",
           JSON.stringify({
-            ...storedUser,
-            full_name:
-              data.data.full_name,
-            phone: data.data.phone,
+            user: updatedUser,
+            token,
           })
         );
       }
@@ -186,13 +311,19 @@ function Profile() {
   const handleChangePassword = async (e) => {
     e.preventDefault();
 
-    const user = JSON.parse(
-      localStorage.getItem("user")
-    );
+    const { user, token } =
+      getStoredUser();
 
-    if (!user) {
+    if (!user || !token) {
       setPasswordError(
         "Please login to change your password."
+      );
+      return;
+    }
+
+    if (!user.user_id) {
+      setPasswordError(
+        "Unable to identify your account. Please login again."
       );
       return;
     }
@@ -219,7 +350,10 @@ function Profile() {
       return;
     }
 
-    if (newPassword !== confirmPassword) {
+    if (
+      newPassword !==
+      confirmPassword
+    ) {
       setPasswordError(
         "New passwords do not match."
       );
@@ -232,23 +366,43 @@ function Profile() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/password/${user.id}`,
+        `http://localhost:5000/api/password/${user.user_id}`,
         {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             current_password:
               currentPassword,
-            new_password: newPassword,
+            new_password:
+              newPassword,
             confirm_password:
               confirmPassword,
           }),
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
+
+      if (response.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("loginData");
+
+        navigate("/login");
+
+        return;
+      }
+
+      if (response.status === 403) {
+        setPasswordError(
+          "You are not authorized to change this password."
+        );
+        return;
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(
@@ -301,9 +455,7 @@ function Profile() {
   if (!profile) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
-
         <div className="bg-white rounded-2xl shadow-md p-10 text-center">
-
           <div className="text-5xl mb-4">
             👤
           </div>
@@ -317,8 +469,13 @@ function Profile() {
               "Unable to load profile."}
           </p>
 
+          <button
+            onClick={fetchProfile}
+            className="mt-6 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+          >
+            Try Again
+          </button>
         </div>
-
       </div>
     );
   }
@@ -331,9 +488,7 @@ function Profile() {
       ================================================= */}
 
       <section className="bg-blue-700 text-white py-14">
-
         <div className="max-w-5xl mx-auto px-6">
-
           <h1 className="text-4xl font-bold">
             My Profile
           </h1>
@@ -342,11 +497,8 @@ function Profile() {
             Manage your personal information,
             preferences and account security
           </p>
-
         </div>
-
       </section>
-
 
       {/* =================================================
           PROFILE FORM
@@ -368,7 +520,6 @@ function Profile() {
           </div>
         )}
 
-
         {/* =================================================
             PERSONAL INFORMATION CARD
         ================================================= */}
@@ -381,19 +532,15 @@ function Profile() {
           {/* Profile heading */}
 
           <div className="bg-gray-50 px-8 py-7 border-b border-gray-200">
-
             <div className="flex items-center gap-5">
 
               <div className="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center">
-
                 <span className="text-4xl">
                   👤
                 </span>
-
               </div>
 
               <div>
-
                 <h2 className="text-2xl font-bold text-gray-900">
                   {profile.full_name}
                 </h2>
@@ -401,13 +548,10 @@ function Profile() {
                 <p className="text-gray-500">
                   Student
                 </p>
-
               </div>
 
             </div>
-
           </div>
-
 
           <div className="p-8">
 
@@ -422,7 +566,6 @@ function Profile() {
               {/* Full Name */}
 
               <div>
-
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Full Name
                 </label>
@@ -438,14 +581,11 @@ function Profile() {
                   required
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-
               </div>
-
 
               {/* Email */}
 
               <div>
-
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Email
                 </label>
@@ -453,7 +593,8 @@ function Profile() {
                 <input
                   type="email"
                   value={
-                    profile.email || ""
+                    profile.email ||
+                    ""
                   }
                   disabled
                   className="w-full border border-gray-200 bg-gray-100 text-gray-500 rounded-lg px-4 py-3 cursor-not-allowed"
@@ -462,14 +603,11 @@ function Profile() {
                 <p className="text-xs text-gray-500 mt-1">
                   Email cannot be changed.
                 </p>
-
               </div>
-
 
               {/* Phone */}
 
               <div>
-
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Phone Number
                 </label>
@@ -484,14 +622,11 @@ function Profile() {
                   placeholder="Enter phone number"
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-
               </div>
-
 
               {/* Date of Birth */}
 
               <div>
-
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Date of Birth
                 </label>
@@ -509,14 +644,11 @@ function Profile() {
                   onChange={handleChange}
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-
               </div>
-
 
               {/* Gender */}
 
               <div>
-
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Gender
                 </label>
@@ -529,7 +661,6 @@ function Profile() {
                   onChange={handleChange}
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-
                   <option value="">
                     Select Gender
                   </option>
@@ -545,16 +676,12 @@ function Profile() {
                   <option value="Other">
                     Other
                   </option>
-
                 </select>
-
               </div>
-
 
               {/* City */}
 
               <div>
-
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   City
                 </label>
@@ -569,14 +696,11 @@ function Profile() {
                   placeholder="Enter city"
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-
               </div>
-
 
               {/* State */}
 
               <div>
-
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   State
                 </label>
@@ -591,11 +715,9 @@ function Profile() {
                   placeholder="Enter state"
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-
               </div>
 
             </div>
-
 
             {/* =================================================
                 COUNSELLING PREFERENCES
@@ -612,7 +734,6 @@ function Profile() {
                 {/* Preferred Course */}
 
                 <div>
-
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Preferred Course
                   </label>
@@ -628,14 +749,11 @@ function Profile() {
                     placeholder="Example: Engineering"
                     className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-
                 </div>
-
 
                 {/* Preferred Location */}
 
                 <div>
-
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Preferred Location
                   </label>
@@ -651,13 +769,10 @@ function Profile() {
                     placeholder="Example: Bengaluru"
                     className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-
                 </div>
 
               </div>
-
             </div>
-
 
             {/* Save Profile */}
 
@@ -679,7 +794,6 @@ function Profile() {
 
         </form>
 
-
         {/* =================================================
             CHANGE PASSWORD
         ================================================= */}
@@ -692,15 +806,12 @@ function Profile() {
           <div className="flex items-center gap-4 mb-7">
 
             <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center">
-
               <span className="text-2xl">
                 🔐
               </span>
-
             </div>
 
             <div>
-
               <h2 className="text-2xl font-bold text-gray-900">
                 Change Password
               </h2>
@@ -709,11 +820,9 @@ function Profile() {
                 Keep your account secure by
                 updating your password
               </p>
-
             </div>
 
           </div>
-
 
           {/* Password success */}
 
@@ -723,7 +832,6 @@ function Profile() {
             </div>
           )}
 
-
           {/* Password error */}
 
           {passwordError && (
@@ -732,20 +840,20 @@ function Profile() {
             </div>
           )}
 
-
           <div className="space-y-5">
 
             {/* Current Password */}
 
             <div>
-
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Current Password
               </label>
 
               <input
                 type="password"
-                value={currentPassword}
+                value={
+                  currentPassword
+                }
                 onChange={(e) =>
                   setCurrentPassword(
                     e.target.value
@@ -755,21 +863,20 @@ function Profile() {
                 required
                 className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-
             </div>
-
 
             {/* New Password */}
 
             <div>
-
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 New Password
               </label>
 
               <input
                 type="password"
-                value={newPassword}
+                value={
+                  newPassword
+                }
                 onChange={(e) =>
                   setNewPassword(
                     e.target.value
@@ -784,21 +891,20 @@ function Profile() {
                 Password must contain at least
                 6 characters.
               </p>
-
             </div>
-
 
             {/* Confirm Password */}
 
             <div>
-
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Confirm New Password
               </label>
 
               <input
                 type="password"
-                value={confirmPassword}
+                value={
+                  confirmPassword
+                }
                 onChange={(e) =>
                   setConfirmPassword(
                     e.target.value
@@ -808,11 +914,9 @@ function Profile() {
                 required
                 className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-
             </div>
 
           </div>
-
 
           {/* Change Password Button */}
 
@@ -820,7 +924,9 @@ function Profile() {
 
             <button
               type="submit"
-              disabled={changingPassword}
+              disabled={
+                changingPassword
+              }
               className="px-7 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {changingPassword

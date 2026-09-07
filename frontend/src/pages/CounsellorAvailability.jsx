@@ -24,13 +24,30 @@ function CounsellorAvailability() {
   const [editingId, setEditingId] = useState(null);
 
   // =====================================================
+  // DAYS ORDER
+  // =====================================================
+
+  const daysOrder = {
+    Monday: 1,
+    Tuesday: 2,
+    Wednesday: 3,
+    Thursday: 4,
+    Friday: 5,
+    Saturday: 6,
+    Sunday: 7,
+  };
+
+  // =====================================================
   // AUTHENTICATION
   // =====================================================
 
   useEffect(() => {
     try {
-      const storedUser = localStorage.getItem("user");
-      const storedToken = localStorage.getItem("token");
+      const storedUser =
+        localStorage.getItem("user");
+
+      const storedToken =
+        localStorage.getItem("token");
 
       if (!storedUser || !storedToken) {
         navigate("/login", {
@@ -40,7 +57,8 @@ function CounsellorAvailability() {
         return;
       }
 
-      const parsedUser = JSON.parse(storedUser);
+      const parsedUser =
+        JSON.parse(storedUser);
 
       if (
         !parsedUser ||
@@ -53,14 +71,19 @@ function CounsellorAvailability() {
         return;
       }
 
-      if (!parsedUser.user_id) {
+      const userId =
+        parsedUser.user_id ??
+        parsedUser.id;
+
+      if (!userId) {
         console.error(
-          "Counsellor user_id is missing:",
+          "Counsellor user ID is missing:",
           parsedUser
         );
 
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("loginData");
 
         navigate("/login", {
           replace: true,
@@ -69,7 +92,15 @@ function CounsellorAvailability() {
         return;
       }
 
-      setUser(parsedUser);
+      const normalizedUser = {
+        ...parsedUser,
+        user_id: userId,
+        id:
+          parsedUser.id ??
+          userId,
+      };
+
+      setUser(normalizedUser);
       setToken(storedToken);
     } catch (error) {
       console.error(
@@ -79,6 +110,7 @@ function CounsellorAvailability() {
 
       localStorage.removeItem("user");
       localStorage.removeItem("token");
+      localStorage.removeItem("loginData");
 
       navigate("/login", {
         replace: true,
@@ -123,7 +155,8 @@ function CounsellorAvailability() {
       }
 
       const userId =
-        loggedInUser.user_id;
+        loggedInUser.user_id ??
+        loggedInUser.id;
 
       if (!userId) {
         setError(
@@ -137,8 +170,10 @@ function CounsellorAvailability() {
         `http://localhost:5000/api/counsellor-availability/${userId}`,
         {
           method: "GET",
+
           headers: {
-            Authorization: `Bearer ${storedToken}`,
+            Authorization:
+              `Bearer ${storedToken}`,
           },
         }
       );
@@ -151,9 +186,14 @@ function CounsellorAvailability() {
         data = {};
       }
 
+      // =================================================
+      // TOKEN ERROR
+      // =================================================
+
       if (response.status === 401) {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("loginData");
 
         navigate("/login", {
           replace: true,
@@ -161,6 +201,10 @@ function CounsellorAvailability() {
 
         return;
       }
+
+      // =================================================
+      // ROLE ERROR
+      // =================================================
 
       if (response.status === 403) {
         setError(
@@ -171,14 +215,46 @@ function CounsellorAvailability() {
         return;
       }
 
-      if (!response.ok || !data.success) {
+      // =================================================
+      // OTHER ERROR
+      // =================================================
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
         throw new Error(
           data.message ||
             "Failed to load availability."
         );
       }
 
-      setAvailability(data.data || []);
+      // =================================================
+      // SORT AVAILABILITY
+      // =================================================
+
+      const schedules =
+        Array.isArray(data.data)
+          ? [...data.data]
+          : [];
+
+      schedules.sort((a, b) => {
+        const dayDifference =
+          (daysOrder[a.day_of_week] || 99) -
+          (daysOrder[b.day_of_week] || 99);
+
+        if (dayDifference !== 0) {
+          return dayDifference;
+        }
+
+        return (
+          String(a.start_time || "").localeCompare(
+            String(b.start_time || "")
+          )
+        );
+      });
+
+      setAvailability(schedules);
     } catch (error) {
       console.error(
         "Fetch availability error:",
@@ -209,7 +285,10 @@ function CounsellorAvailability() {
   // =====================================================
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    const {
+      name,
+      value,
+    } = e.target;
 
     setFormData((previous) => ({
       ...previous,
@@ -235,6 +314,92 @@ function CounsellorAvailability() {
   };
 
   // =====================================================
+  // CHECK FRONTEND OVERLAP
+  // =====================================================
+
+  const hasOverlappingSchedule = () => {
+    const newStart =
+      formData.start_time;
+
+    const newEnd =
+      formData.end_time;
+
+    if (
+      !formData.day_of_week ||
+      !newStart ||
+      !newEnd
+    ) {
+      return false;
+    }
+
+    const newStartMinutes =
+      timeToMinutes(newStart);
+
+    const newEndMinutes =
+      timeToMinutes(newEnd);
+
+    return availability.some(
+      (slot) => {
+        if (
+          slot.day_of_week !==
+          formData.day_of_week
+        ) {
+          return false;
+        }
+
+        if (
+          editingId &&
+          Number(slot.id) ===
+            Number(editingId)
+        ) {
+          return false;
+        }
+
+        const existingStart =
+          timeToMinutes(
+            slot.start_time
+              ? slot.start_time.slice(0, 5)
+              : ""
+          );
+
+        const existingEnd =
+          timeToMinutes(
+            slot.end_time
+              ? slot.end_time.slice(0, 5)
+              : ""
+          );
+
+        return (
+          newStartMinutes <
+            existingEnd &&
+          newEndMinutes >
+            existingStart
+        );
+      }
+    );
+  };
+
+  // =====================================================
+  // TIME TO MINUTES
+  // =====================================================
+
+  const timeToMinutes = (time) => {
+    if (!time) {
+      return 0;
+    }
+
+    const [
+      hours,
+      minutes,
+    ] = time.split(":").map(Number);
+
+    return (
+      hours * 60 +
+      minutes
+    );
+  };
+
+  // =====================================================
   // ADD / UPDATE AVAILABILITY
   // =====================================================
 
@@ -243,6 +408,10 @@ function CounsellorAvailability() {
 
     setError("");
     setSuccess("");
+
+    // -------------------------------------------------
+    // BASIC VALIDATION
+    // -------------------------------------------------
 
     if (
       !formData.day_of_week ||
@@ -267,6 +436,48 @@ function CounsellorAvailability() {
       return;
     }
 
+    // -------------------------------------------------
+    // MINIMUM 30 MINUTES
+    // -------------------------------------------------
+
+    const startMinutes =
+      timeToMinutes(
+        formData.start_time
+      );
+
+    const endMinutes =
+      timeToMinutes(
+        formData.end_time
+      );
+
+    if (
+      endMinutes -
+        startMinutes <
+      30
+    ) {
+      setError(
+        "Availability must be at least 30 minutes long."
+      );
+
+      return;
+    }
+
+    // -------------------------------------------------
+    // CHECK OVERLAP
+    // -------------------------------------------------
+
+    if (hasOverlappingSchedule()) {
+      setError(
+        "This availability overlaps with another schedule on the same day."
+      );
+
+      return;
+    }
+
+    // -------------------------------------------------
+    // AUTHENTICATION
+    // -------------------------------------------------
+
     const storedUser =
       localStorage.getItem("user");
 
@@ -289,6 +500,7 @@ function CounsellorAvailability() {
     } catch {
       localStorage.removeItem("user");
       localStorage.removeItem("token");
+      localStorage.removeItem("loginData");
 
       navigate("/login", {
         replace: true,
@@ -309,7 +521,8 @@ function CounsellorAvailability() {
     }
 
     const userId =
-      loggedInUser.user_id;
+      loggedInUser.user_id ??
+      loggedInUser.id;
 
     if (!userId) {
       setError(
@@ -397,9 +610,14 @@ function CounsellorAvailability() {
         data = {};
       }
 
+      // =================================================
+      // TOKEN ERROR
+      // =================================================
+
       if (response.status === 401) {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("loginData");
 
         navigate("/login", {
           replace: true,
@@ -408,12 +626,31 @@ function CounsellorAvailability() {
         return;
       }
 
+      // =================================================
+      // ROLE ERROR
+      // =================================================
+
       if (response.status === 403) {
         throw new Error(
           data.message ||
             "You are not authorized to modify availability."
         );
       }
+
+      // =================================================
+      // CONFLICT
+      // =================================================
+
+      if (response.status === 409) {
+        throw new Error(
+          data.message ||
+            "This availability conflicts with an existing schedule."
+        );
+      }
+
+      // =================================================
+      // OTHER ERROR
+      // =================================================
 
       if (
         !response.ok ||
@@ -424,6 +661,10 @@ function CounsellorAvailability() {
             "Failed to save availability."
         );
       }
+
+      // =================================================
+      // SUCCESS
+      // =================================================
 
       if (editingId) {
         setSuccess(
@@ -533,9 +774,14 @@ function CounsellorAvailability() {
         data = {};
       }
 
+      // =================================================
+      // TOKEN ERROR
+      // =================================================
+
       if (response.status === 401) {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("loginData");
 
         navigate("/login", {
           replace: true,
@@ -544,12 +790,20 @@ function CounsellorAvailability() {
         return;
       }
 
+      // =================================================
+      // ROLE ERROR
+      // =================================================
+
       if (response.status === 403) {
         throw new Error(
           data.message ||
             "You are not authorized to delete this availability."
         );
       }
+
+      // =================================================
+      // OTHER ERROR
+      // =================================================
 
       if (
         !response.ok ||
@@ -565,7 +819,10 @@ function CounsellorAvailability() {
         "Availability deleted successfully."
       );
 
-      if (editingId === id) {
+      if (
+        Number(editingId) ===
+        Number(id)
+      ) {
         resetForm();
       }
 
@@ -644,9 +901,14 @@ function CounsellorAvailability() {
         data = {};
       }
 
+      // =================================================
+      // TOKEN ERROR
+      // =================================================
+
       if (response.status === 401) {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("loginData");
 
         navigate("/login", {
           replace: true,
@@ -655,12 +917,20 @@ function CounsellorAvailability() {
         return;
       }
 
+      // =================================================
+      // ROLE ERROR
+      // =================================================
+
       if (response.status === 403) {
         throw new Error(
           data.message ||
             "You are not authorized to update this availability."
         );
       }
+
+      // =================================================
+      // OTHER ERROR
+      // =================================================
 
       if (
         !response.ok ||
@@ -701,8 +971,10 @@ function CounsellorAvailability() {
       return "";
     }
 
-    const [hours, minutes] =
-      time.split(":");
+    const [
+      hours,
+      minutes,
+    ] = time.split(":");
 
     const hourNumber =
       Number(hours);
@@ -726,7 +998,6 @@ function CounsellorAvailability() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-
           <div className="text-5xl mb-4">
             🕐
           </div>
@@ -734,7 +1005,6 @@ function CounsellorAvailability() {
           <p className="text-lg text-gray-600">
             Loading availability...
           </p>
-
         </div>
       </div>
     );
@@ -746,7 +1016,6 @@ function CounsellorAvailability() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-6">
-
       <div className="max-w-5xl mx-auto">
 
         {/* =================================================
@@ -758,7 +1027,6 @@ function CounsellorAvailability() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
 
             <div>
-
               <h1 className="text-3xl font-bold text-gray-900">
                 🕐 Counsellor Availability
               </h1>
@@ -767,7 +1035,6 @@ function CounsellorAvailability() {
                 Manage the days and times when students
                 can book counselling appointments.
               </p>
-
             </div>
 
             <button
@@ -838,7 +1105,6 @@ function CounsellorAvailability() {
           <div className="flex items-center justify-between mb-6">
 
             <div>
-
               <h2 className="text-2xl font-bold text-gray-900">
 
                 {editingId
@@ -850,7 +1116,6 @@ function CounsellorAvailability() {
               <p className="text-gray-500 mt-1">
                 Set your counselling working hours.
               </p>
-
             </div>
 
           </div>
@@ -862,7 +1127,6 @@ function CounsellorAvailability() {
               {/* DAY */}
 
               <div>
-
                 <label className="block font-semibold text-gray-700 mb-2">
                   Day *
                 </label>
@@ -875,7 +1139,6 @@ function CounsellorAvailability() {
                   onChange={handleChange}
                   className="w-full border border-gray-300 rounded-lg p-3 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-
                   <option value="">
                     Select day
                   </option>
@@ -907,15 +1170,12 @@ function CounsellorAvailability() {
                   <option value="Sunday">
                     Sunday
                   </option>
-
                 </select>
-
               </div>
 
               {/* START TIME */}
 
               <div>
-
                 <label className="block font-semibold text-gray-700 mb-2">
                   Start Time *
                 </label>
@@ -929,13 +1189,11 @@ function CounsellorAvailability() {
                   onChange={handleChange}
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-
               </div>
 
               {/* END TIME */}
 
               <div>
-
                 <label className="block font-semibold text-gray-700 mb-2">
                   End Time *
                 </label>
@@ -949,7 +1207,6 @@ function CounsellorAvailability() {
                   onChange={handleChange}
                   className="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-
               </div>
 
             </div>
@@ -961,7 +1218,7 @@ function CounsellorAvailability() {
               <button
                 type="submit"
                 disabled={saving}
-                className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
+                className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving
                   ? "Saving..."
@@ -974,7 +1231,8 @@ function CounsellorAvailability() {
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="sm:w-40 bg-gray-200 text-gray-800 py-3 rounded-lg font-semibold hover:bg-gray-300 transition"
+                  disabled={saving}
+                  className="sm:w-40 bg-gray-200 text-gray-800 py-3 rounded-lg font-semibold hover:bg-gray-300 transition disabled:opacity-50"
                 >
                   Cancel Edit
                 </button>
@@ -995,7 +1253,6 @@ function CounsellorAvailability() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
 
             <div>
-
               <h2 className="text-2xl font-bold text-gray-900">
                 📅 My Availability
               </h2>
@@ -1003,7 +1260,6 @@ function CounsellorAvailability() {
               <p className="text-gray-500 mt-1">
                 Students will use these timings to book appointments.
               </p>
-
             </div>
 
             <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-semibold">
@@ -1037,106 +1293,110 @@ function CounsellorAvailability() {
 
             <div className="space-y-4">
 
-              {availability.map((slot) => (
+              {availability.map(
+                (slot) => (
 
-                <div
-                  key={slot.id}
-                  className={`border rounded-xl p-5 transition ${
-                    slot.is_available
-                      ? "border-gray-200 bg-white"
-                      : "border-gray-200 bg-gray-100 opacity-70"
-                  }`}
-                >
+                  <div
+                    key={slot.id}
+                    className={`border rounded-xl p-5 transition ${
+                      slot.is_available
+                        ? "border-gray-200 bg-white"
+                        : "border-gray-200 bg-gray-100 opacity-70"
+                    }`}
+                  >
 
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
 
-                    {/* SLOT INFORMATION */}
+                      {/* SLOT INFORMATION */}
 
-                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-4">
 
-                      <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center text-2xl">
-                        📅
+                        <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center text-2xl">
+                          📅
+                        </div>
+
+                        <div>
+
+                          <h3 className="text-lg font-bold text-gray-900">
+                            {slot.day_of_week}
+                          </h3>
+
+                          <p className="text-gray-600">
+                            🕐{" "}
+                            {formatTime(
+                              slot.start_time
+                            )}{" "}
+                            –{" "}
+                            {formatTime(
+                              slot.end_time
+                            )}
+                          </p>
+
+                          <span
+                            className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold ${
+                              slot.is_available
+                                ? "bg-green-100 text-green-700"
+                                : "bg-gray-200 text-gray-600"
+                            }`}
+                          >
+                            {slot.is_available
+                              ? "Available"
+                              : "Disabled"}
+                          </span>
+
+                        </div>
+
                       </div>
 
-                      <div>
+                      {/* ACTION BUTTONS */}
 
-                        <h3 className="text-lg font-bold text-gray-900">
-                          {slot.day_of_week}
-                        </h3>
+                      <div className="flex flex-wrap gap-2">
 
-                        <p className="text-gray-600">
-                          🕐{" "}
-                          {formatTime(
-                            slot.start_time
-                          )}{" "}
-                          –{" "}
-                          {formatTime(
-                            slot.end_time
-                          )}
-                        </p>
-
-                        <span
-                          className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold ${
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleToggle(slot)
+                          }
+                          className={`px-4 py-2 rounded-lg font-semibold transition ${
                             slot.is_available
-                              ? "bg-green-100 text-green-700"
-                              : "bg-gray-200 text-gray-600"
+                              ? "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
+                              : "bg-green-100 text-green-700 hover:bg-green-200"
                           }`}
                         >
                           {slot.is_available
-                            ? "Available"
-                            : "Disabled"}
-                        </span>
+                            ? "Disable"
+                            : "Enable"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleEdit(slot)
+                          }
+                          className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-semibold hover:bg-blue-200 transition"
+                        >
+                          ✏️ Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleDelete(
+                              slot.id
+                            )
+                          }
+                          className="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-semibold hover:bg-red-200 transition"
+                        >
+                          🗑️ Delete
+                        </button>
 
                       </div>
-
-                    </div>
-
-                    {/* ACTION BUTTONS */}
-
-                    <div className="flex flex-wrap gap-2">
-
-                      <button
-                        onClick={() =>
-                          handleToggle(slot)
-                        }
-                        className={`px-4 py-2 rounded-lg font-semibold transition ${
-                          slot.is_available
-                            ? "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
-                            : "bg-green-100 text-green-700 hover:bg-green-200"
-                        }`}
-                      >
-                        {slot.is_available
-                          ? "Disable"
-                          : "Enable"}
-                      </button>
-
-                      <button
-                        onClick={() =>
-                          handleEdit(slot)
-                        }
-                        className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-semibold hover:bg-blue-200 transition"
-                      >
-                        ✏️ Edit
-                      </button>
-
-                      <button
-                        onClick={() =>
-                          handleDelete(
-                            slot.id
-                          )
-                        }
-                        className="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-semibold hover:bg-red-200 transition"
-                      >
-                        🗑️ Delete
-                      </button>
 
                     </div>
 
                   </div>
-
-                </div>
-
-              ))}
+                )
+              )}
 
             </div>
 
@@ -1165,11 +1425,15 @@ function CounsellorAvailability() {
             </li>
 
             <li>
+              • Each availability period must be at least 30 minutes.
+            </li>
+
+            <li>
               • Disabled schedules will not be available for student bookings.
             </li>
 
             <li>
-              • Students will eventually see available appointment slots based on these schedules.
+              • Students will see available appointment slots based on these schedules.
             </li>
 
           </ul>
@@ -1177,7 +1441,6 @@ function CounsellorAvailability() {
         </div>
 
       </div>
-
     </div>
   );
 }

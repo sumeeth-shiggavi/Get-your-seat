@@ -1,12 +1,12 @@
 const pool = require("../config/database");
 
 // =====================================================
-// GET COUNSELLOR APPOINTMENTS
+// GET COUNSELLOR DASHBOARD
 // =====================================================
 
 const getCounsellorAppointments = async (req, res) => {
   try {
-    // Always use the authenticated user's ID
+    // Always use authenticated user's ID
     const user_id = req.user.id;
 
     // -------------------------------------------------
@@ -46,7 +46,7 @@ const getCounsellorAppointments = async (req, res) => {
       counsellorResult.rows[0];
 
     // -------------------------------------------------
-    // GET COUNSELLOR APPOINTMENTS
+    // GET ALL APPOINTMENTS
     // -------------------------------------------------
 
     const appointmentsResult =
@@ -93,24 +93,148 @@ const getCounsellorAppointments = async (req, res) => {
         [counsellor.counsellor_id]
       );
 
+    const appointments =
+      appointmentsResult.rows;
+
+    // -------------------------------------------------
+    // CALCULATE DASHBOARD STATISTICS
+    // -------------------------------------------------
+
+    const totalAppointments =
+      appointments.length;
+
+    const scheduledAppointments =
+      appointments.filter(
+        (appointment) =>
+          appointment.status ===
+          "scheduled"
+      ).length;
+
+    const rescheduledAppointments =
+      appointments.filter(
+        (appointment) =>
+          appointment.status ===
+          "rescheduled"
+      ).length;
+
+    const completedAppointments =
+      appointments.filter(
+        (appointment) =>
+          appointment.status ===
+          "completed"
+      ).length;
+
+    const cancelledAppointments =
+      appointments.filter(
+        (appointment) =>
+          appointment.status ===
+          "cancelled"
+      ).length;
+
+    // -------------------------------------------------
+    // TODAY'S DATE
+    // -------------------------------------------------
+
+    const today = new Date()
+      .toISOString()
+      .split("T")[0];
+
+    // -------------------------------------------------
+    // TODAY'S APPOINTMENTS
+    // -------------------------------------------------
+
+    const todayAppointments =
+      appointments.filter(
+        (appointment) => {
+          const appointmentDate =
+            new Date(
+              appointment.appointment_date
+            )
+              .toISOString()
+              .split("T")[0];
+
+          return (
+            appointmentDate === today &&
+            appointment.status !==
+              "cancelled"
+          );
+        }
+      );
+
+    // -------------------------------------------------
+    // UPCOMING APPOINTMENTS
+    // -------------------------------------------------
+
+    const upcomingAppointments =
+      appointments.filter(
+        (appointment) => {
+          const appointmentDate =
+            new Date(
+              appointment.appointment_date
+            )
+              .toISOString()
+              .split("T")[0];
+
+          return (
+            appointmentDate >= today &&
+            appointment.status !==
+              "cancelled" &&
+            appointment.status !==
+              "completed"
+          );
+        }
+      );
+
+    // -------------------------------------------------
+    // RESPONSE
+    // -------------------------------------------------
+
     res.json({
       success: true,
+
       data: {
         counsellor,
-        appointments:
-          appointmentsResult.rows,
+
+        appointments,
+
+        statistics: {
+          total:
+            totalAppointments,
+
+          scheduled:
+            scheduledAppointments,
+
+          rescheduled:
+            rescheduledAppointments,
+
+          completed:
+            completedAppointments,
+
+          cancelled:
+            cancelledAppointments,
+
+          today:
+            todayAppointments.length,
+
+          upcoming:
+            upcomingAppointments.length,
+        },
+
+        todayAppointments,
+
+        upcomingAppointments,
       },
     });
   } catch (error) {
     console.error(
-      "Get counsellor appointments error:",
+      "Get counsellor dashboard error:",
       error
     );
 
     res.status(500).json({
       success: false,
       message:
-        "Failed to fetch counsellor appointments.",
+        "Failed to fetch counsellor dashboard.",
     });
   }
 };
@@ -119,7 +243,10 @@ const getCounsellorAppointments = async (req, res) => {
 // MARK APPOINTMENT AS COMPLETED
 // =====================================================
 
-const completeAppointment = async (req, res) => {
+const completeAppointment = async (
+  req,
+  res
+) => {
   try {
     const { id } = req.params;
 
@@ -130,16 +257,19 @@ const completeAppointment = async (req, res) => {
     // FIND COUNSELLOR
     // -------------------------------------------------
 
-    const counsellorResult = await pool.query(
-      `
-      SELECT id
-      FROM counsellors
-      WHERE user_id = $1
-      `,
-      [user_id]
-    );
+    const counsellorResult =
+      await pool.query(
+        `
+        SELECT id
+        FROM counsellors
+        WHERE user_id = $1
+        `,
+        [user_id]
+      );
 
-    if (counsellorResult.rows.length === 0) {
+    if (
+      counsellorResult.rows.length === 0
+    ) {
       return res.status(404).json({
         success: false,
         message:
@@ -189,7 +319,9 @@ const completeAppointment = async (req, res) => {
         [id, counsellorId]
       );
 
-    if (appointmentResult.rows.length === 0) {
+    if (
+      appointmentResult.rows.length === 0
+    ) {
       return res.status(404).json({
         success: false,
         message: "Appointment not found.",
@@ -203,7 +335,10 @@ const completeAppointment = async (req, res) => {
     // CHECK STATUS
     // -------------------------------------------------
 
-    if (appointment.status === "completed") {
+    if (
+      appointment.status ===
+      "completed"
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -269,7 +404,9 @@ const completeAppointment = async (req, res) => {
       `,
       [
         appointment.student_user_id,
+
         "Appointment Completed",
+
         `Your counselling appointment with ${appointment.counsellor_name} has been completed successfully.`,
       ]
     );
@@ -304,7 +441,6 @@ const updateAppointmentNotes = async (
 ) => {
   try {
     const { id } = req.params;
-
     const { notes } = req.body;
 
     // Always use authenticated user ID
@@ -314,16 +450,19 @@ const updateAppointmentNotes = async (
     // FIND COUNSELLOR
     // -------------------------------------------------
 
-    const counsellorResult = await pool.query(
-      `
-      SELECT id
-      FROM counsellors
-      WHERE user_id = $1
-      `,
-      [user_id]
-    );
+    const counsellorResult =
+      await pool.query(
+        `
+        SELECT id
+        FROM counsellors
+        WHERE user_id = $1
+        `,
+        [user_id]
+      );
 
-    if (counsellorResult.rows.length === 0) {
+    if (
+      counsellorResult.rows.length === 0
+    ) {
       return res.status(404).json({
         success: false,
         message:
@@ -336,8 +475,6 @@ const updateAppointmentNotes = async (
 
     // -------------------------------------------------
     // UPDATE NOTES
-    // Only the counsellor who owns the appointment
-    // can update its notes.
     // -------------------------------------------------
 
     const result = await pool.query(
